@@ -1,0 +1,42 @@
+<div class="window-content">
+  <div class="constelacao-canvas-placeholder">
+    <div class="constelacao-canvas-container" data-canvas-container></div>
+  </div>
+
+  <div class="constelacao-panel">
+    {{#if selectedNode}}
+    <p class="constelacao-section-title">{{selectedNode.name}}</p>
+    {{#if selectedNode.subtitle}}<p style="font-size: 0.9em; color: var(--constelacao-lavender); margin: 0.3rem 0;">{{selectedNode.subtitle}}</p>{{/if}}
+    
+    {{#if selectedNode.quote}}
+    <blockquote style="border-left: 3px solid var(--constelacao-gold-pale); padding-left: 0.5rem; margin: 0.5rem 0; font-family: var(--constelacao-font-quote); font-style: italic; color: var(--constelacao-gold-pale);">
+      {{selectedNode.quote}}
+    </blockquote>
+    {{/if}}
+
+    {{#if selectedNode.description}}
+    <div style="margin: 0.5rem 0; line-height: 1.5;">
+      {{{selectedNode.description}}}
+    </div>
+    {{/if}}
+
+    <div style="margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid rgba(201, 182, 228, 0.2);">
+      <p style="font-size: 0.85em; color: var(--constelacao-lavender);">
+        {{#if selectedNode.categoryId}}<strong>Categoria:</strong> {{selectedNode.categoryId}}<br>{{/if}}
+        <strong>Raridade:</strong> {{selectedNode.rarityId}}<br>
+        <strong>Tipo:</strong> {{selectedNode.type}}<br>
+        {{#if selectedNode.unlocked}}<strong style="color: var(--constelacao-gold-pale);">✓ Desbloqueado</strong>{{else}}<strong style="color: var(--constelacao-lavender);">○ Revelado</strong>{{/if}}
+      </p>
+    </div>
+
+    {{else}}
+    <p class="constelacao-section-title">{{actorName}}</p>
+    <p style="opacity: 0.7; margin: 1rem 0;">
+      <strong>{{nodeCount}}</strong> Aspecto{{#unless (eq nodeCount 1)}}s{{/unless}}<br>
+      <strong>{{unlockedCount}}</strong> Desbloqueado{{#unless (eq unlockedCount 1)}}s{{/unless}}<br>
+      <strong>{{unspentPoints}}</strong> Ponto{{#unless (eq unspentPoints 1)}}s{{/unless}} da Apoteose
+    </p>
+    <p class="constelacao-placeholder-note"><em>Clique num Aspecto para ver detalhes.</em></p>
+    {{/if}}
+  </div>
+</div>

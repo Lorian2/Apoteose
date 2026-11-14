@@ -1,0 +1,27 @@
+<div>
+  <p class="constelacao-section-title">Ferramentas</p>
+  <button type="button" data-action="grantPoint" class="constelacao-tool-button" style="background-color: rgba(232, 217, 160, 0.2); border-color: rgba(232, 217, 160, 0.5);">
+    ✨ Conceder Ponto
+  </button>
+  <button type="button" data-action="revokePoint" class="constelacao-tool-button" style="background-color: rgba(232, 217, 160, 0.08); border-color: rgba(232, 217, 160, 0.3);">
+    ➖ Remover Ponto
+  </button>
+  <button type="button" data-action="toggleCreateMode" class="constelacao-tool-button{{#if createModeActive}} active{{/if}}">
+    {{#if createModeActive}}Cancelar criação{{else}}+ Criar{{/if}}
+  </button>
+  <button type="button" data-action="toggleConnectMode" class="constelacao-tool-button{{#if connectModeActive}} active{{/if}}">
+    {{#if connectModeActive}}Cancelar conexão{{else}}✥ Conectar{{/if}}
+  </button>
+  <button type="button" data-action="toggleRemoveMode" class="constelacao-tool-button{{#if removeModeActive}} active{{/if}}">
+    {{#if removeModeActive}}Cancelar remoção{{else}}🗑 Remover{{/if}}
+  </button>
+  <p class="constelacao-placeholder-note">
+    <em>
+    {{#if createModeActive}}Clique numa área vazia do canvas para criar um Aspecto.
+    {{else if connectModeActive}}Clique em duas estrelas para ligá-las.
+    {{else if removeModeActive}}Clique numa estrela ou linha para remover (com confirmação).
+    {{else}}Arraste uma estrela para reposicionar. Clique para selecionar. (Esc cancela modo){{/if}}
+    </em>
+  </p>
+</div>
+

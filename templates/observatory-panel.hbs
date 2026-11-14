@@ -1,0 +1,70 @@
+<div>
+{{#if selectedNode}}
+<p class="constelacao-section-title">{{selectedNode.name}}</p>
+{{#if selectedNode.subtitle}}<p style="font-size: 0.9em; color: var(--constelacao-lavender); margin: 0.3rem 0;">{{selectedNode.subtitle}}</p>{{/if}}
+
+{{#if selectedNode.image}}
+<img src="{{selectedNode.image}}" alt="" style="float: right; width: 96px; height: 96px; object-fit: cover; border-radius: 6px; border: 1px solid var(--constelacao-border-soft); box-shadow: 0 0 12px var(--constelacao-glow-lavender); margin: 0 0 0.6rem 0.8rem;">
+{{/if}}
+
+{{#if selectedNode.quote}}
+<blockquote style="border-left: 3px solid var(--constelacao-gold-pale); padding-left: 0.5rem; margin: 0.5rem 0; font-family: var(--constelacao-font-quote); font-style: italic; color: var(--constelacao-gold-pale);">
+  {{selectedNode.quote}}
+</blockquote>
+{{/if}}
+
+{{#if selectedNode.description}}
+<div style="margin: 0.5rem 0; line-height: 1.5;">
+  {{{selectedNode.description}}}
+</div>
+{{/if}}
+
+<div style="clear: both; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid rgba(201, 182, 228, 0.2);">
+  <p style="font-size: 0.85em; color: var(--constelacao-lavender);">
+    {{#if selectedNode.categoryId}}<strong>Categoria:</strong> {{selectedNode.categoryId}}<br>{{/if}}
+    <strong>Raridade:</strong> {{selectedNode.rarityId}}<br>
+    <strong>Tipo:</strong> {{selectedNode.type}}<br>
+    {{#if selectedNode.unlocked}}<strong style="color: var(--constelacao-gold-pale);">✓ Desbloqueado</strong>{{else}}<strong style="color: var(--constelacao-lavender);">○ Revelado</strong>{{/if}}
+  </p>
+</div>
+
+{{#unless selectedNode.unlocked}}
+<div style="margin-top: 0.8rem;">
+  {{#if selectedNode.blocked}}
+  <p class="constelacao-placeholder-note"><em>Este caminho fechou permanentemente — um Aspecto rival foi escolhido.</em></p>
+  {{else if selectedNode.prerequisiteLocked}}
+  <p class="constelacao-placeholder-note"><em>É preciso desbloquear pelo menos um Aspecto anterior conectado antes deste.</em></p>
+  {{else}}
+  <button type="button" data-action="unlockNode" {{#if unlockButtonDisabled}}disabled{{/if}}>
+    {{#if unlockInFlight}}Desbloqueando…{{else}}Desbloquear (1 Ponto da Apoteose){{/if}}
+  </button>
+  {{#unless canUnlockSelected}}
+  <p class="constelacao-placeholder-note"><em>Sem Pontos da Apoteose disponíveis. Peça ao Mestre.</em></p>
+  {{/unless}}
+  {{/if}}
+</div>
+{{/unless}}
+
+{{else}}
+<p class="constelacao-section-title">{{actorName}}</p>
+<p style="opacity: 0.7; margin: 1rem 0;">
+  <strong>{{nodeCount}}</strong> Aspecto{{#unless (eq nodeCount 1)}}s{{/unless}}<br>
+  <strong>{{unlockedCount}}</strong> Desbloqueado{{#unless (eq unlockedCount 1)}}s{{/unless}}<br>
+  <strong>{{unspentPoints}}</strong> Ponto{{#unless (eq unspentPoints 1)}}s{{/unless}} da Apoteose
+</p>
+<p class="constelacao-placeholder-note"><em>Clique num Aspecto para ver detalhes.</em></p>
+
+{{#if history.length}}
+<hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.2); margin: 1rem 0;">
+<h4 style="font-family: var(--constelacao-font-legend); font-size: 0.95em; color: var(--constelacao-gold-pale); margin: 0.5rem 0;">Linha do Tempo da Jornada</h4>
+<ul style="list-style: none; margin: 0; padding: 0;">
+  {{#each history}}
+  <li style="margin-bottom: 0.5rem; padding-left: 0.6rem; border-left: 2px solid var(--constelacao-border-soft);">
+    <div style="font-size: 0.8em; color: var(--constelacao-lavender);">{{this.date}}{{#if this.nodeName}} — {{this.nodeName}}{{/if}}</div>
+    <div>{{this.chapterTitle}}</div>
+  </li>
+  {{/each}}
+</ul>
+{{/if}}
+{{/if}}
+</div>

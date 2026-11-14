@@ -1,0 +1,261 @@
+/* Constelação da Apoteose — estilos base
+ * Fase de refinamento visual (GDD, seção 8 — direção mística e etérea).
+ *
+ * Esta etapa cobre: paleta de cores, tipografia e o fundo etéreo dos três
+ * painéis do Editor (barra de ferramentas, canvas, propriedades).
+ *
+ * Ainda pendente (próximas etapas): brilho/pulsação das estrelas,
+ * gradiente e efeito de "acender" nos caminhos, easing suave de zoom/pan
+ * da câmera — tudo isso vive em `nebula-canvas.ts` / `star-node.ts` /
+ * `path-line.ts` / `camera-controller.ts`, não neste arquivo.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cormorant+Garamond:ital,wght@0,400;1,400&display=swap');
+
+.constelacao-apoteose {
+  /* Paleta (GDD, seção 8): azul-anil e roxo-ameixa profundos como base do
+   * céu; dourado-pálido, lavanda e branco-perolado como acentos suaves.
+   * Raridade nunca usa cor gritante — só luminosidade e sutileza. */
+  --constelacao-void: #0b0a1f;
+  --constelacao-indigo-deep: #161034;
+  --constelacao-indigo: #241b4e;
+  --constelacao-plum: #3a1f4d;
+  --constelacao-gold-pale: #e8d9a0;
+  --constelacao-lavender: #c9b6e4;
+  --constelacao-pearl: #f5f3ff;
+  --constelacao-mist: rgba(245, 243, 255, 0.05);
+  --constelacao-border-soft: rgba(201, 182, 228, 0.16);
+  --constelacao-glow-lavender: rgba(201, 182, 228, 0.25);
+
+  /* Tipografia (GDD, seção 8): serifada/caligráfica para nomes e
+   * citações — "lenda antiga sendo escrita"; interface funcional em
+   * fonte limpa (a padrão do Foundry já atende a esse segundo papel). */
+  --constelacao-font-legend: 'Cinzel', 'Times New Roman', serif;
+  --constelacao-font-quote: 'Cormorant Garamond', Georgia, serif;
+}
+
+.editor-application .window-content {
+  display: grid;
+  grid-template-columns: 200px 1fr 260px;
+  gap: 0.5rem;
+  height: 100%;
+  min-height: 0;
+  background: var(--constelacao-void);
+}
+
+.editor-application .window-content > * {
+  min-height: 0;
+  min-width: 0;
+}
+
+.observatory-application .window-content {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 0.5rem;
+  height: 100%;
+  min-height: 0;
+  background: var(--constelacao-void);
+}
+
+.observatory-application .window-content > * {
+  min-height: 0;
+  min-width: 0;
+}
+
+/* Painéis (ferramentas e propriedades) — poeira cósmica como névoa suave,
+ * nunca bordas rígidas: gradiente de fundo, borda quase invisível, brilho
+ * difuso em vez de contorno duro. */
+.constelacao-toolbar,
+.constelacao-panel {
+  background:
+    radial-gradient(ellipse at top, var(--constelacao-mist), transparent 70%),
+    linear-gradient(160deg, var(--constelacao-indigo) 0%, var(--constelacao-indigo-deep) 100%);
+  border: 1px solid var(--constelacao-border-soft);
+  border-radius: 10px;
+  box-shadow: 0 0 24px -8px var(--constelacao-glow-lavender);
+  padding: 0.85rem;
+  color: var(--constelacao-pearl);
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: 100%;
+}
+
+/* Scrollbar customizada (opcional, mais bonita) */
+.constelacao-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.constelacao-panel::-webkit-scrollbar-track {
+  background: rgba(11, 10, 31, 0.3);
+  border-radius: 4px;
+}
+
+.constelacao-panel::-webkit-scrollbar-thumb {
+  background: rgba(201, 182, 228, 0.4);
+  border-radius: 4px;
+}
+
+.constelacao-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(201, 182, 228, 0.6);
+}
+
+.constelacao-tool-button {
+  width: 100%;
+  margin-bottom: 0.5rem;
+}
+
+.constelacao-tool-button.active {
+  filter: brightness(1.4);
+}
+
+/* Canvas — o próprio céu da constelação. Camadas de gradiente radial
+ * simulam nebulosa/poeira cósmica sem recorrer a ruído áspero. */
+.constelacao-canvas-placeholder {
+  background:
+    radial-gradient(ellipse 70% 55% at 30% 20%, rgba(201, 182, 228, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 75% 70%, rgba(58, 31, 77, 0.55), transparent 65%),
+    radial-gradient(ellipse 90% 80% at 50% 50%, var(--constelacao-indigo-deep), var(--constelacao-void) 90%);
+  border: 1px solid var(--constelacao-border-soft);
+  border-radius: 10px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.constelacao-canvas-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.constelacao-canvas-container {
+  width: 100%;
+  height: 100%;
+}
+
+.constelacao-canvas-container canvas {
+  display: block;
+}
+
+.constelacao-recenter-button {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 0.75rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 1px solid var(--constelacao-border-soft);
+  background: var(--constelacao-indigo);
+  color: var(--constelacao-lavender);
+  font-size: 1.1em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.constelacao-recenter-button:hover {
+  background: var(--constelacao-plum);
+  color: var(--constelacao-pearl);
+}
+
+.constelacao-panel label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.9em;
+  color: var(--constelacao-lavender);
+}
+
+.constelacao-panel input[type='text'],
+.constelacao-panel textarea,
+.constelacao-panel select {
+  width: 100%;
+  box-sizing: border-box;
+  background: rgba(11, 10, 31, 0.5);
+  border: 1px solid var(--constelacao-border-soft);
+  border-radius: 6px;
+  color: var(--constelacao-pearl);
+}
+
+.constelacao-panel input:disabled,
+.constelacao-panel textarea:disabled,
+.constelacao-panel select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: rgba(11, 10, 31, 0.25);
+}
+
+.constelacao-toggle-row {
+  display: flex !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.constelacao-toggle-row input {
+  width: auto !important;
+}
+
+.constelacao-gm-notes {
+  background: rgba(232, 217, 160, 0.06) !important;
+  border-color: rgba(232, 217, 160, 0.3) !important;
+}
+
+.constelacao-gm-notes::before {
+  content: "🔒 ";
+}
+
+/* Nomes de Aspectos e o nome do Ator — a "lenda sendo escrita". */
+.constelacao-section-title {
+  font-family: var(--constelacao-font-legend);
+  font-size: 1.15em;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: var(--constelacao-gold-pale);
+  margin-bottom: 0.5rem;
+}
+
+.constelacao-placeholder-note {
+  opacity: 0.65;
+  font-size: 0.85em;
+  font-family: var(--constelacao-font-quote);
+  font-style: italic;
+  color: var(--constelacao-lavender);
+}
+
+.constelacao-media-picker {
+  background: rgba(201, 182, 228, 0.15);
+  border: 1px solid rgba(201, 182, 228, 0.3);
+  border-radius: 4px;
+  color: var(--constelacao-pearl);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.constelacao-media-picker:hover {
+  background: rgba(201, 182, 228, 0.25);
+  border-color: rgba(201, 182, 228, 0.6);
+}
+
+/* Botão Observatory injected na ficha de Ator */
+.constelacao-observatory-button {
+  background: linear-gradient(135deg, rgba(232, 217, 160, 0.2), rgba(201, 182, 228, 0.15));
+  border: 1px solid rgba(201, 182, 228, 0.4);
+  border-radius: 4px;
+  color: var(--constelacao-gold-pale);
+  padding: 0.5rem 1rem;
+  margin: 0.5rem 0;
+  cursor: pointer;
+  font-family: var(--constelacao-font-legend);
+  font-weight: 600;
+  transition: all 0.2s ease;
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+.constelacao-observatory-button:hover {
+  background: linear-gradient(135deg, rgba(232, 217, 160, 0.35), rgba(201, 182, 228, 0.25));
+  border-color: rgba(201, 182, 228, 0.7);
+  box-shadow: 0 0 16px -4px rgba(232, 217, 160, 0.4);
+}

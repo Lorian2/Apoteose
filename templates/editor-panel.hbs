@@ -1,0 +1,188 @@
+<div>
+{{#if selectedNode}}
+  <form data-panel-form data-node-id="{{selectedNode.id}}">
+    <p class="constelacao-section-title">{{selectedNode.name}}</p>
+
+    <label class="constelacao-toggle-row">
+      <input type="checkbox" name="visibility-toggle" {{#if selectedNode.revealed}}checked{{/if}}>
+      Revelado ao jogador
+    </label>
+    <label class="constelacao-toggle-row">
+      <input type="checkbox" name="unlocked-toggle" {{#if selectedNode.unlocked}}checked{{/if}} {{#if (eq unspentPoints 0)}}disabled{{/if}} {{#if selectedNode.blocked}}disabled{{/if}} {{#if selectedNode.prerequisiteLocked}}disabled{{/if}}>
+      Desbloqueado{{#if selectedNode.blocked}} (caminho fechado por exclusão mútua){{else if selectedNode.prerequisiteLocked}} (Aspecto anterior ainda não desbloqueado){{else if (eq unspentPoints 0)}} (sem pontos disponíveis){{else}} ({{unspentPoints}} ponto(s)){{/if}}
+    </label>
+
+    <label>Nome
+      <input type="text" name="name" value="{{selectedNode.name}}">
+    </label>
+    <label>Subtítulo
+      <input type="text" name="subtitle" value="{{selectedNode.subtitle}}">
+    </label>
+    <label>Citação
+      <input type="text" name="quote" value="{{selectedNode.quote}}">
+    </label>
+    <label>Descrição
+      <textarea name="description" rows="3">{{selectedNode.description}}</textarea>
+    </label>
+
+    <label>Categoria
+      <select name="categoryId">
+        <option value="">(nenhuma)</option>
+        {{#each categories}}
+          <option value="{{this.id}}" {{#if (eq this.id ../selectedNode.categoryId)}}selected{{/if}}>{{this.label}}</option>
+        {{/each}}
+      </select>
+    </label>
+    <label>Raridade
+      <select name="rarityId">
+        {{#each rarities}}
+          <option value="{{this.id}}" {{#if (eq this.id ../selectedNode.rarityId)}}selected{{/if}}>{{this.label}}</option>
+        {{/each}}
+      </select>
+    </label>
+    <label>Tipo
+      <select name="type">
+        {{#each nodeTypes}}
+          <option value="{{this.value}}" {{#if (eq this.value ../selectedNode.type)}}selected{{/if}}>{{this.label}}</option>
+        {{/each}}
+      </select>
+    </label>
+
+    <label>Observações do Mestre
+      <textarea name="gmNotes" rows="4" class="constelacao-gm-notes">{{selectedNode.gmNotes}}</textarea>
+    </label>
+
+    {{#if selectedNode.excludableTargets}}
+    <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.2); margin: 1rem 0;">
+    <h4 style="font-family: var(--constelacao-font-legend); font-size: 0.95em; color: var(--constelacao-gold-pale); margin: 0.5rem 0;">Exclusão mútua</h4>
+    <p class="constelacao-placeholder-note">
+      <em>Se este Aspecto for desbloqueado, os Aspectos marcados abaixo fecham permanentemente (todos os caminhos até eles).</em>
+    </p>
+    {{#each selectedNode.excludableTargets}}
+    <label class="constelacao-toggle-row">
+      <input type="checkbox" name="exclude-target" value="{{this.id}}" {{#if this.excluded}}checked{{/if}}>
+      {{this.label}}
+    </label>
+    {{/each}}
+    {{/if}}
+
+    {{#if @root.isGM}}
+    <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.2); margin: 1rem 0;">
+    
+    <h4 style="font-family: var(--constelacao-font-legend); font-size: 0.95em; color: var(--constelacao-gold-pale); margin: 0.5rem 0;">Mídia (Mestre)</h4>
+    
+    <label>Ícone
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="media.icon" value="{{selectedNode.media.icon}}" placeholder="caminho do ícone" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-media-field="icon" data-media-type="image" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    <label>Imagem do Aspecto
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="media.image" value="{{selectedNode.media.image}}" placeholder="caminho da imagem" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-media-field="image" data-media-type="image" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    {{#if selectedNode.media.image}}
+    <div style="margin: 0.5rem 0; border: 1px solid rgba(201, 182, 228, 0.3); border-radius: 6px; padding: 0.4rem; max-width: 150px;">
+      <img src="{{selectedNode.media.image}}" style="width: 100%; border-radius: 4px; max-height: 120px; object-fit: cover;">
+    </div>
+    {{/if}}
+
+    <label>Som de Revelação
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="media.soundReveal" value="{{selectedNode.media.soundReveal}}" placeholder="caminho do áudio" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-media-field="soundReveal" data-media-type="audio" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    <label>Som de Desbloqueio
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="media.soundUnlock" value="{{selectedNode.media.soundUnlock}}" placeholder="caminho do áudio" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-media-field="soundUnlock" data-media-type="audio" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    <label>Som de Seleção
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="media.soundSelect" value="{{selectedNode.media.soundSelect}}" placeholder="caminho do áudio" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-media-field="soundSelect" data-media-type="audio" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    <p class="constelacao-placeholder-note"><em>Clique no 🔍 para procurar arquivos, ou cole o caminho manualmente.</em></p>
+    {{/if}}
+  </form>
+{{else}}
+  <p class="constelacao-section-title">{{actorName}}</p>
+  <p>{{nodeCount}} nó(s) — {{hiddenCount}} oculto(s) ao jogador</p>
+  <p>Pontos da Apoteose disponíveis: <strong>{{unspentPoints}}</strong></p>
+  <p class="constelacao-placeholder-note"><em>Selecione um nó para editar.</em></p>
+
+  {{#if isGM}}
+  <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.2); margin: 1rem 0;">
+  <h4 style="font-family: var(--constelacao-font-legend); font-size: 0.95em; color: var(--constelacao-gold-pale); margin: 0.5rem 0;">Configurações da Constelação</h4>
+  <form data-constellation-form>
+    <label>Imagem de fundo (sem costura — repete infinitamente pelo canvas)
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="background" value="{{background}}" placeholder="caminho da imagem" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-constellation-media data-media-field="background" data-media-type="image" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+    {{#if background}}
+    <div style="margin: 0.5rem 0; border: 1px solid rgba(201, 182, 228, 0.3); border-radius: 6px; padding: 0.4rem; max-width: 150px;">
+      <img src="{{background}}" style="width: 100%; border-radius: 4px; max-height: 100px; object-fit: cover;">
+    </div>
+    {{/if}}
+    <label>Música de fundo (toca em loop enquanto esta janela estiver aberta)
+      <div style="display: flex; gap: 0.4rem; align-items: center;">
+        <input type="text" name="backgroundMusic" value="{{backgroundMusic}}" placeholder="caminho do áudio" style="flex: 1;">
+        <button type="button" class="constelacao-media-picker" data-constellation-media data-media-field="backgroundMusic" data-media-type="audio" style="padding: 0.3rem 0.6rem; font-size: 0.9em;">🔍</button>
+      </div>
+    </label>
+
+    <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.15); margin: 1rem 0;">
+    <p style="font-size: 0.85em; color: var(--constelacao-lavender); margin: 0 0 0.4rem;">Categorias</p>
+    {{#each categories}}
+    <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.3rem;">
+      <input type="text" name="category-label" value="{{this.label}}" data-category-id="{{this.id}}" style="flex: 1;">
+      <input type="color" name="category-color" value="{{this.color}}" data-category-id="{{this.id}}" style="width: 2.2rem; padding: 0;">
+      <button type="button" data-action="removeCategory" data-category-id="{{this.id}}" title="Remover categoria" style="padding: 0.2rem 0.5rem;">×</button>
+    </div>
+    {{/each}}
+    <button type="button" data-action="addCategory" style="font-size: 0.85em; margin-top: 0.2rem;">+ Nova categoria</button>
+
+    <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.15); margin: 1rem 0;">
+    <p style="font-size: 0.85em; color: var(--constelacao-lavender); margin: 0 0 0.4rem;">Raridades</p>
+    {{#each rarities}}
+    <div style="display: flex; gap: 0.4rem; align-items: center; margin-bottom: 0.3rem;">
+      <input type="text" name="rarity-label" value="{{this.label}}" data-rarity-id="{{this.id}}" style="flex: 1;">
+      <input type="color" name="rarity-color" value="{{this.color}}" data-rarity-id="{{this.id}}" style="width: 2.2rem; padding: 0;">
+      <input type="number" name="rarity-order" value="{{this.order}}" data-rarity-id="{{this.id}}" title="Ordem (mais raro = número maior)" style="width: 3.5rem;">
+      <button type="button" data-action="removeRarity" data-rarity-id="{{this.id}}" title="Remover raridade" style="padding: 0.2rem 0.5rem;">×</button>
+    </div>
+    {{/each}}
+    <button type="button" data-action="addRarity" style="font-size: 0.85em; margin-top: 0.2rem;">+ Nova raridade</button>
+  </form>
+
+  <hr style="border: 0; height: 1px; background: rgba(201, 182, 228, 0.2); margin: 1rem 0;">
+  <h4 style="font-family: var(--constelacao-font-legend); font-size: 0.95em; color: var(--constelacao-gold-pale); margin: 0.5rem 0;">Linha do Tempo da Jornada</h4>
+  <button type="button" data-action="logHistoryEntry" style="margin-bottom: 0.6rem;">+ Registrar momento</button>
+  {{#if history.length}}
+  <ul style="list-style: none; margin: 0; padding: 0;">
+    {{#each history}}
+    <li style="margin-bottom: 0.5rem; padding-left: 0.6rem; border-left: 2px solid var(--constelacao-border-soft);">
+      <div style="font-size: 0.8em; color: var(--constelacao-lavender);">{{this.date}}{{#if this.nodeName}} — {{this.nodeName}}{{/if}}</div>
+      <div>{{this.chapterTitle}}</div>
+    </li>
+    {{/each}}
+  </ul>
+  {{else}}
+  <p class="constelacao-placeholder-note"><em>Nenhum momento registrado ainda.</em></p>
+  {{/if}}
+  {{/if}}
+{{/if}}
+</div>
+
