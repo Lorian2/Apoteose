@@ -25,5 +25,6 @@ declare global {
   interface SettingConfig {
     'constelacao-da-apoteose.sfxVolume': number;
     'constelacao-da-apoteose.musicVolume': number;
+    'constelacao-da-apoteose.animatedSky': boolean;
   }
 }

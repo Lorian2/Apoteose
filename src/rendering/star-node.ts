@@ -1,4 +1,5 @@
 import type { NodeStatus, Position } from '../types/constellation';
+import { flareTexture, glowTexture } from './textures';
 
 const DEFAULT_COLOR = 0xc9b6e4; // lavanda
 const EXCLUDED_COLOR = 0x4a4550; // cinza neutro — caminho fechado para sempre
@@ -8,21 +9,25 @@ const PEARL = 0xf5f3ff;
 
 export const NODE_RADIUS = 12;
 const ICON_SIZE = NODE_RADIUS * 1.5;
-const GLOW_LAYERS = [
-  { radius: NODE_RADIUS + 18, alpha: 0.06 },
-  { radius: NODE_RADIUS + 11, alpha: 0.12 },
-  { radius: NODE_RADIUS + 5, alpha: 0.22 },
-];
 const LABEL_MAX_CHARS = 26;
 
-const PULSE_CYCLE_MS = 3200; // respiração lenta
+const PULSE_CYCLE_MS = 3600; // respiração lenta
 const REVEAL_DURATION_MS = 1100;
-const UNLOCK_DURATION_MS = 1600;
+const UNLOCK_DURATION_MS = 1700;
 
 function parseColor(value: string | undefined): number {
   if (!value) return DEFAULT_COLOR;
   const parsed = Number.parseInt(value.replace('#', ''), 16);
   return Number.isFinite(parsed) ? parsed : DEFAULT_COLOR;
+}
+
+/** Clareia uma cor em direção ao branco (0 = igual, 1 = branco). */
+function lighten(color: number, amount: number): number {
+  const r = (color >> 16) & 0xff;
+  const g = (color >> 8) & 0xff;
+  const b = color & 0xff;
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount);
+  return (mix(r) << 16) | (mix(g) << 8) | mix(b);
 }
 
 function easeOutCubic(t: number): number {
@@ -38,29 +43,33 @@ export interface StarNodeData {
   /** Falso só na visão do Mestre, para nós ainda ocultos ao jogador. */
   revealed: boolean;
   status: NodeStatus;
+  /**
+   * 0 (raridade mais comum) a 1 (mais rara). A raridade nunca grita: ela
+   * aparece como luminosidade — halo maior e raios de luz mais longos.
+   */
+  brilliance?: number;
 }
 
 /**
- * Um Aspecto no canvas. Todas as animações rodam por `update(deltaMs)`,
- * chamado pelo ticker do canvas — nada de requestAnimationFrame próprio
- * por estrela, e `destroy()` libera tudo que foi criado no PIXI.
+ * Um Aspecto no canvas. Camadas, de trás para frente: halo (brilho aditivo
+ * com a cor da raridade) → raios de luz (só desbloqueadas) → onda de
+ * desbloqueio → anel de seleção → núcleo → ponto quente → ícone → nome.
  *
- * Estados visuais:
- * - desbloqueado: halo que respira, contorno perolado
- * - disponível: cor da raridade, contorno suave
- * - aguardando anterior: opacidade reduzida, contorno acinzentado
- * - caminho fechado: cinza, sem halo
- * - oculto (só Mestre): fantasmagórico
- * - selecionado/realçado: contorno dourado e núcleo maior
+ * Todas as animações rodam por `update(deltaMs)`, chamado pelo ticker do
+ * canvas; `destroy()` libera tudo que foi criado no PIXI.
  */
 export class StarNode {
   readonly graphics: PIXI.Container;
   readonly nodeId: string;
   #data: StarNodeData;
   #color: number;
-  #glow = new PIXI.Graphics();
-  #core = new PIXI.Graphics();
+  #brilliance: number;
+  #halo: PIXI.Sprite;
+  #flare: PIXI.Sprite;
   #ring = new PIXI.Graphics();
+  #selection = new PIXI.Graphics();
+  #core = new PIXI.Graphics();
+  #hot: PIXI.Sprite;
   #icon: PIXI.Sprite | undefined;
   #label: PIXI.Text;
   #position: Position;
@@ -69,10 +78,13 @@ export class StarNode {
   #elapsedMs = Math.random() * PULSE_CYCLE_MS; // estrelas não respiram em uníssono
   #revealProgress = 1;
   #unlockProgress = 1;
+  #haloBase = { size: 0, alpha: 0 };
+  #flareBase = { size: 0, alpha: 0 };
 
   constructor(data: StarNodeData) {
     this.nodeId = data.id;
     this.#data = data;
+    this.#brilliance = Math.min(1, Math.max(0, data.brilliance ?? 0.3));
     this.#color = data.status === 'excluded' ? EXCLUDED_COLOR : parseColor(data.color);
     this.#position = { ...data.position };
 
@@ -82,8 +94,11 @@ export class StarNode {
     this.graphics.hitArea = new PIXI.Circle(0, 0, NODE_RADIUS + 6);
     this.graphics.position.set(data.position.x, data.position.y);
 
-    this.#ring.eventMode = 'none';
-    this.graphics.addChild(this.#ring, this.#glow, this.#core);
+    this.#halo = this.#additiveSprite(glowTexture(), this.#color);
+    this.#flare = this.#additiveSprite(flareTexture(), lighten(this.#color, 0.4));
+    this.#hot = this.#additiveSprite(glowTexture(), 0xffffff);
+    for (const child of [this.#ring, this.#selection, this.#core]) child.eventMode = 'none';
+    this.graphics.addChild(this.#halo, this.#flare, this.#ring, this.#selection, this.#core, this.#hot);
 
     if (data.icon) {
       this.#icon = PIXI.Sprite.from(data.icon);
@@ -100,15 +115,16 @@ export class StarNode {
       fontSize: 12,
       fill: PEARL,
       align: 'center',
+      letterSpacing: 0.5,
       dropShadow: true,
       dropShadowColor: 0x0b0a1f,
-      dropShadowBlur: 4,
+      dropShadowBlur: 5,
       dropShadowDistance: 0,
-      dropShadowAlpha: 0.9,
+      dropShadowAlpha: 1,
     });
     this.#label.resolution = 2;
     this.#label.anchor.set(0.5, 0);
-    this.#label.position.set(0, NODE_RADIUS + 7);
+    this.#label.position.set(0, NODE_RADIUS + 9);
     this.#label.eventMode = 'none';
     this.graphics.addChild(this.#label);
 
@@ -149,16 +165,28 @@ export class StarNode {
 
   update(deltaMs: number): void {
     this.#elapsedMs += deltaMs;
+    const phase = (this.#elapsedMs % PULSE_CYCLE_MS) / PULSE_CYCLE_MS;
+    const breath = Math.sin(phase * Math.PI * 2);
 
     if (this.#revealProgress < 1) {
       this.#revealProgress = Math.min(1, this.#revealProgress + deltaMs / REVEAL_DURATION_MS);
       this.#applyRevealTransform();
     }
 
-    if (this.#data.status === 'unlocked') {
-      const phase = (this.#elapsedMs % PULSE_CYCLE_MS) / PULSE_CYCLE_MS;
-      this.#glow.alpha = 0.75 + 0.25 * Math.sin(phase * Math.PI * 2);
+    // Halo respira; nas desbloqueadas, mais fundo.
+    const status = this.#data.status;
+    const depth = status === 'unlocked' ? 0.18 : status === 'available' ? 0.1 : 0;
+    const haloSize = this.#haloBase.size * (1 + depth * breath);
+    this.#halo.width = haloSize;
+    this.#halo.height = haloSize;
+    this.#halo.alpha = this.#haloBase.alpha * (1 + depth * 0.8 * breath);
+
+    if (this.#flareBase.alpha > 0) {
+      this.#flare.rotation = Math.sin(this.#elapsedMs / 9000) * 0.12;
+      this.#flare.alpha = this.#flareBase.alpha * (0.8 + 0.2 * breath);
     }
+
+    if (this.#selected) this.#selection.rotation += deltaMs / 6000;
 
     if (this.#unlockProgress < 1) {
       this.#ring.clear();
@@ -166,17 +194,27 @@ export class StarNode {
       if (this.#unlockProgress >= 1) return;
       const eased = easeOutCubic(this.#unlockProgress);
       const fade = 1 - this.#unlockProgress;
-      this.#ring.lineStyle(2.5, this.#color, 0.8 * fade);
-      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 70);
-      this.#ring.lineStyle(1.5, PEARL, 0.5 * fade);
-      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 45);
+      this.#ring.lineStyle(3, lighten(this.#color, 0.3), 0.85 * fade);
+      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 80);
+      this.#ring.lineStyle(1.5, PEARL, 0.55 * fade);
+      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 50);
+      // o halo também "acende" junto com a onda
+      this.#halo.alpha += 0.6 * fade;
     }
   }
 
   destroy(): void {
-    // Não destrói a textura do ícone: ela fica no cache do PIXI e é
-    // reaproveitada pela próxima renderização.
+    // Texturas ficam no cache compartilhado (e a do ícone, no cache do PIXI).
     this.graphics.destroy({ children: true });
+  }
+
+  #additiveSprite(texture: PIXI.Texture, tint: number): PIXI.Sprite {
+    const sprite = new PIXI.Sprite(texture);
+    sprite.anchor.set(0.5);
+    sprite.tint = tint;
+    sprite.blendMode = PIXI.BLEND_MODES.ADD;
+    sprite.eventMode = 'none';
+    return sprite;
   }
 
   #applyRevealTransform(): void {
@@ -187,48 +225,77 @@ export class StarNode {
 
   #redraw(): void {
     const { status, revealed } = this.#data;
+    const b = this.#brilliance;
     const unlocked = status === 'unlocked';
     const highlighted = this.#selected || this.#hovered;
     let opacity = revealed ? 1 : 0.4;
-    if (status === 'prerequisite') opacity *= 0.6;
+    if (status === 'prerequisite') opacity *= 0.55;
     if (status === 'excluded') opacity *= 0.7;
 
-    this.#glow.clear();
-    if (unlocked || highlighted) {
-      const strength = unlocked ? 1 : 0.6;
-      for (const layer of GLOW_LAYERS) {
-        this.#glow.beginFill(this.#color, layer.alpha * strength * opacity);
-        this.#glow.drawCircle(0, 0, layer.radius);
-        this.#glow.endFill();
+    // Halo: tamanho e força crescem com a raridade e com a conquista.
+    const haloByStatus: Record<NodeStatus, { size: number; alpha: number }> = {
+      unlocked: { size: 90 + 70 * b, alpha: 0.75 + 0.25 * b },
+      available: { size: 60 + 40 * b, alpha: 0.38 + 0.2 * b },
+      prerequisite: { size: 44, alpha: 0.16 },
+      excluded: { size: 0, alpha: 0 },
+    };
+    const halo = haloByStatus[status];
+    this.#haloBase = {
+      size: halo.size * (highlighted ? 1.15 : 1),
+      alpha: Math.min(1, (halo.alpha + (highlighted ? 0.2 : 0)) * opacity),
+    };
+    this.#halo.visible = this.#haloBase.alpha > 0;
+
+    // Raios de luz: só estrelas acesas; mais longos quanto mais rara.
+    this.#flareBase = unlocked
+      ? { size: 70 + 110 * b, alpha: (0.35 + 0.45 * b) * opacity }
+      : { size: 0, alpha: 0 };
+    this.#flare.visible = this.#flareBase.alpha > 0;
+    this.#flare.width = this.#flareBase.size;
+    this.#flare.height = this.#flareBase.size;
+
+    // Anel de seleção tracejado, girando devagar.
+    this.#selection.clear();
+    if (this.#selected || this.#hovered) {
+      const radius = NODE_RADIUS + 8;
+      const segments = 16;
+      this.#selection.lineStyle(this.#selected ? 1.6 : 1, SELECTED_OUTLINE, this.#selected ? 0.9 : 0.5);
+      for (let i = 0; i < segments; i++) {
+        const start = (i / segments) * Math.PI * 2;
+        const end = start + (Math.PI * 2) / segments / 2;
+        this.#selection.moveTo(Math.cos(start) * radius, Math.sin(start) * radius);
+        this.#selection.arc(0, 0, radius, start, end);
       }
     }
 
+    // Núcleo.
     this.#core.clear();
     if (this.#selected) {
-      this.#core.lineStyle(3, SELECTED_OUTLINE, 0.95);
-    } else if (this.#hovered) {
-      this.#core.lineStyle(2, SELECTED_OUTLINE, 0.6);
+      this.#core.lineStyle(2.2, SELECTED_OUTLINE, 0.95);
     } else if (unlocked) {
-      this.#core.lineStyle(2, PEARL, 0.7);
+      this.#core.lineStyle(1.6, PEARL, 0.75);
     } else if (status === 'prerequisite') {
-      this.#core.lineStyle(1.5, PREREQUISITE_OUTLINE, 0.7);
+      this.#core.lineStyle(1.2, PREREQUISITE_OUTLINE, 0.7);
     } else if (!revealed) {
-      this.#core.lineStyle(1.5, PEARL, 0.5);
+      this.#core.lineStyle(1.2, PEARL, 0.45);
     } else {
-      this.#core.lineStyle(1.5, PEARL, 0.3);
+      this.#core.lineStyle(1.2, PEARL, 0.35);
     }
-    this.#core.beginFill(this.#color, opacity);
-    this.#core.drawCircle(0, 0, this.#selected ? NODE_RADIUS + 3 : NODE_RADIUS);
+    const coreColor = unlocked ? lighten(this.#color, 0.25) : this.#color;
+    this.#core.beginFill(coreColor, opacity * (unlocked ? 1 : 0.85));
+    this.#core.drawCircle(0, 0, this.#selected ? NODE_RADIUS + 2 : NODE_RADIUS);
     this.#core.endFill();
-    if (unlocked) {
-      // brilho interno: um ponto claro no centro dá volume à estrela
-      this.#core.beginFill(PEARL, 0.55 * opacity);
-      this.#core.drawCircle(0, 0, NODE_RADIUS * 0.35);
-      this.#core.endFill();
-    }
+
+    // Ponto quente no centro: dá volume e "luz própria".
+    const hot = unlocked ? 0.95 : status === 'available' ? 0.45 : 0;
+    this.#hot.visible = hot > 0;
+    this.#hot.alpha = hot * opacity;
+    this.#hot.width = NODE_RADIUS * (unlocked ? 2.6 : 1.8);
+    this.#hot.height = this.#hot.width;
 
     if (this.#icon) this.#icon.alpha = opacity;
-    this.#label.alpha = (highlighted ? 1 : status === 'excluded' ? 0.45 : 0.8) * (revealed ? 1 : 0.6);
+    this.#label.alpha = (highlighted ? 1 : status === 'excluded' ? 0.4 : unlocked ? 0.95 : 0.75) * (revealed ? 1 : 0.6);
+    this.#label.style.fill = unlocked ? 0xf6efd6 : PEARL;
     this.#label.style.fontStyle = revealed ? 'normal' : 'italic';
   }
 }

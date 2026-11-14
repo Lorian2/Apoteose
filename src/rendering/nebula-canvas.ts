@@ -3,6 +3,7 @@ import { CameraController } from './camera-controller';
 import { PathLine, type PathLineState } from './path-line';
 import { NODE_RADIUS, StarNode } from './star-node';
 import { ParticleField } from './particle-field';
+import { SkyBackground } from './sky';
 
 // Tamanho do ladrilho de fundo, na unidade do mundo — bem maior que
 // qualquer área de pan/zoom razoável, para parecer infinito.
@@ -36,6 +37,15 @@ export interface NebulaCanvasCallbacks {
 export interface NebulaCanvasOptions {
   /** Editor do Mestre: arrastar, criar, conectar e remover. Falso no Observatório. */
   editable: boolean;
+  /** Movimento decorativo (cintilação, estrelas cadentes, fluxo). Padrão: ligado. */
+  animated?: boolean;
+}
+
+const instances = new Set<NebulaCanvas>();
+
+/** Aplica a configuração "Céu animado" a todo canvas aberto. */
+export function setAllCanvasesAnimated(animated: boolean): void {
+  for (const canvas of instances) canvas.setAnimated(animated);
 }
 
 /**
@@ -62,7 +72,11 @@ export class NebulaCanvas {
   readonly #callbacks: NebulaCanvasCallbacks;
   readonly #options: NebulaCanvasOptions;
   readonly #resizeObserver: ResizeObserver;
+  readonly #container: HTMLElement;
   readonly #particleField = new ParticleField();
+  readonly #sky = new SkyBackground();
+  #animated = true;
+  #lastRender: [RenderableNode[], PathConnection[], RarityTier[], ExclusionPair[]] | null = null;
 
   #stars = new Map<string, StarNode>();
   #lines = new Map<string, { connection: PathConnection; line: PathLine }>();
@@ -105,7 +119,7 @@ export class NebulaCanvas {
       this.#starLayer,
       this.#overlay,
     );
-    this.#app.stage.addChild(this.#world);
+    this.#app.stage.addChild(this.#sky.container, this.#world);
     this.#app.ticker.add(this.#onTick);
 
     this.#camera = new CameraController(this.#app.view as HTMLCanvasElement, this.#world);
@@ -118,24 +132,39 @@ export class NebulaCanvas {
     this.#app.stage.on('pointerupoutside', this.#onStagePointerUp);
 
     // O tamanho real do container só é confiável depois do layout em grid.
+    this.#container = container;
     this.#resizeObserver = new ResizeObserver((entries) => {
       const rect = entries[0]?.contentRect;
-      if (!rect || rect.width <= 0 || rect.height <= 0) return;
-      this.#app.renderer.resize(rect.width, rect.height);
-      this.#app.stage.hitArea = this.#app.screen;
-      if (!this.#hasSize) {
-        this.#hasSize = true;
-        this.#world.position.set(rect.width / 2, rect.height / 2);
-      }
-      this.#tryInitialFit();
+      if (rect) this.#applySize(rect.width, rect.height);
     });
     this.#resizeObserver.observe(container);
+    this.setAnimated(options.animated ?? true);
+    instances.add(this);
+
+    // O PIXI desenha os nomes com a fonte disponível no momento; se a
+    // Cinzel ainda estiver carregando, redesenha quando ela chegar.
+    if (document.fonts && document.fonts.status !== 'loaded') {
+      void document.fonts.ready.then(() => {
+        if (instances.has(this) && this.#lastRender) {
+          const previous = this.#previousUnlocked;
+          this.render(...this.#lastRender);
+          this.#previousUnlocked = previous;
+        }
+      });
+    }
   }
 
   setMode(mode: NebulaCanvasMode): void {
     this.#mode = mode;
     this.#cancelConnect();
     this.#app.stage.cursor = mode === 'create' ? 'crosshair' : 'default';
+  }
+
+  /** Liga/desliga o movimento decorativo (céu, poeira, fluxo nos caminhos). */
+  setAnimated(animated: boolean): void {
+    this.#animated = animated;
+    this.#sky.setAnimated(animated);
+    for (const { line } of this.#lines.values()) line.setAnimated(animated);
   }
 
   get mode(): NebulaCanvasMode {
@@ -184,8 +213,12 @@ export class NebulaCanvas {
     rarities: RarityTier[],
     exclusions: ExclusionPair[] = [],
   ): void {
+    this.#lastRender = [nodes, connections, rarities, exclusions];
     this.#clearScene();
     const rarityColor = new Map(rarities.map((rarity) => [rarity.id, rarity.color]));
+    // Brilho por raridade: posição na ordem, de 0 (mais comum) a 1 (mais rara).
+    const ranked = [...rarities].sort((a, b) => a.order - b.order);
+    const brilliance = new Map(ranked.map((rarity, index) => [rarity.id, ranked.length > 1 ? index / (ranked.length - 1) : 0.5]));
     const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const animate = this.#previousUnlocked !== null;
 
@@ -204,6 +237,7 @@ export class NebulaCanvas {
       if (!from || !to) continue;
 
       const line = new PathLine(from.position, to.position, lineState(from.status, to.status));
+      line.setAnimated(this.#animated);
       line.setSelected(connection.id === this.#selectedConnectionId);
       if (animate && !this.#knownConnectionIds.has(connection.id)) line.playFadeIn();
       line.graphics.eventMode = 'static';
@@ -223,6 +257,7 @@ export class NebulaCanvas {
         name: node.name,
         position: node.position,
         color: node.color || rarityColor.get(node.rarityId),
+        brilliance: brilliance.get(node.rarityId),
         icon: node.icon,
         revealed: node.revealed,
         status: node.status,
@@ -265,6 +300,7 @@ export class NebulaCanvas {
   }
 
   destroy(): void {
+    instances.delete(this);
     this.#app.ticker.remove(this.#onTick);
     this.#clearScene();
     this.#resizeObserver.disconnect();
@@ -304,13 +340,42 @@ export class NebulaCanvas {
     return { minX, minY, maxX, maxY };
   }
 
+  /**
+   * Avança as animações e desenha na hora, sem depender do ticker. Serve à
+   * pré-visualização e a testes (o navegador não gera quadros com a janela
+   * oculta); devolve o quadro como PNG.
+   */
+  renderNow(elapsedMs = 0, steps = 1): string {
+    this.#applySize(this.#container.clientWidth, this.#container.clientHeight);
+    for (let i = 0; i < steps; i++) this.#step(elapsedMs / steps);
+    this.#app.render();
+    return (this.#app.view as HTMLCanvasElement).toDataURL('image/png');
+  }
+
+  #applySize(width: number, height: number): void {
+    if (width <= 0 || height <= 0) return;
+    if (this.#hasSize && width === this.#app.screen.width && height === this.#app.screen.height) return;
+    this.#app.renderer.resize(width, height);
+    this.#app.stage.hitArea = this.#app.screen;
+    this.#sky.resize(width, height);
+    if (!this.#hasSize) {
+      this.#hasSize = true;
+      this.#world.position.set(width / 2, height / 2);
+    }
+    this.#tryInitialFit();
+  }
+
   #onTick = (): void => {
-    const deltaMs = this.#app.ticker.deltaMS;
-    this.#particleField.update(deltaMs);
+    this.#step(this.#app.ticker.deltaMS);
+  };
+
+  #step(deltaMs: number): void {
+    this.#sky.update(deltaMs, { x: this.#world.x, y: this.#world.y, scale: this.#world.scale.x });
+    if (this.#animated) this.#particleField.update(deltaMs);
     for (const star of this.#stars.values()) star.update(deltaMs);
     for (const { line } of this.#lines.values()) line.update(deltaMs);
     this.#drawConnectPreview();
-  };
+  }
 
   #drawConnectPreview(): void {
     this.#overlay.clear();

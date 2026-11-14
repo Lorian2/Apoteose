@@ -7,6 +7,7 @@ import { ConstellationService } from '../services/constellation-service';
 import { computeNodeStatuses, exclusivePartners } from '../utils/node-status';
 import { escapeHTML } from '../utils/html';
 import { playMediaSound } from '../utils/sound';
+import { isSkyAnimated } from '../services/display-settings';
 import type { AspectNode, ConstellationDefinition, NodeStatus, Position } from '../types/constellation';
 
 interface EditorApplicationOptions {
@@ -402,7 +403,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
         onNodeRemoveRequested: (nodeId) => void this.#removeNode(nodeId),
         onConnectionRemoveRequested: (connectionId) => void this.#removeConnection(connectionId),
       },
-      { editable: true },
+      { editable: true, animated: isSkyAnimated() },
     );
     this.#canvas.setMode(this.#mode);
     this.#renderCanvas();

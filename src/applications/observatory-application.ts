@@ -5,6 +5,7 @@ import { BackgroundMusicPlayer } from '../rendering/background-music';
 import { computeNodeStatuses } from '../utils/node-status';
 import { plainTextToHTML } from '../utils/html';
 import { playMediaSound } from '../utils/sound';
+import { isSkyAnimated } from '../services/display-settings';
 import type { NodeStatus, PlayerConstellationState, PlayerVisibleNode } from '../types/constellation';
 
 const STATUS_NOTES: Record<NodeStatus, string> = {
@@ -168,6 +169,7 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
     if (!container) return;
     this.#canvas = new NebulaCanvas(container, { onNodeSelected: (nodeId) => this.#handleNodeSelected(nodeId) }, {
       editable: false,
+      animated: isSkyAnimated(),
     });
     this.#renderCanvas();
   }

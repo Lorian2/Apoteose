@@ -1,5 +1,18 @@
 # Changelog — Constelação da Apoteose
 
+## [0.3.0] - a lançar
+
+### Visual
+- Céu em camadas: nebulosa suave em anil, ameixa e lavanda, três campos de estrelas distantes com paralaxe (o fundo se move menos que a constelação no pan e no zoom), estrelas que cintilam com raios de luz e, raramente, uma estrela cadente.
+- Estrelas dos Aspectos com halo luminoso na cor da raridade, ponto de luz no centro e raios de luz nas desbloqueadas. Quanto mais rara, maior o halo e mais longos os raios: a raridade aparece como luminosidade, nunca como cor gritante.
+- Anel de seleção tracejado girando devagar; onda de luz mais forte ao desbloquear.
+- Caminhos com brilho difuso; nos já percorridos e nos abertos, pontos de luz correm no sentido do caminho.
+- Vinheta nas bordas do canvas e cabeçalho da janela no tema.
+- Os nomes das estrelas são redesenhados quando a fonte Cinzel termina de carregar.
+
+### Configuração
+- "Céu animado" (por usuário): desliga cintilação, estrelas cadentes, poeira e fluxo nos caminhos. Começa desligado se o sistema pedir movimento reduzido.
+
 ## [0.2.0] - 2026-11-14
 
 ### Regras

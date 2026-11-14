@@ -235,6 +235,10 @@ querer ajustar num cenário diferente:
 | Tamanho da estrela / ícone / halo | `src/rendering/star-node.ts` | `NODE_RADIUS`, `ICON_SIZE`, `GLOW_LAYERS` |
 | Respiração e animações da estrela | `src/rendering/star-node.ts` | `PULSE_CYCLE_MS`, `REVEAL_DURATION_MS`, `UNLOCK_DURATION_MS` |
 | Espessura/opacidade dos caminhos | `src/rendering/path-line.ts` | tabela `STYLE`, `FADE_IN_MS` |
+| Cores e densidade da nebulosa / campos de estrelas | `src/rendering/textures.ts` | `nebulaTexture` (paleta), `starfieldTexture(seed, densidade, raio, brilho)` |
+| Camadas do céu, paralaxe, cintilação, estrelas cadentes | `src/rendering/sky.ts` | chamadas `add(...)` no construtor (fator de paralaxe, opacidade, deriva), `TWINKLE_COUNT`, intervalo em `#updateShootingStars` |
+| Halo e raios por situação/raridade | `src/rendering/star-node.ts` | `haloByStatus` e `#flareBase` em `#redraw` |
+| Luz fluindo nos caminhos | `src/rendering/path-line.ts` | campo `flow` da tabela `STYLE` |
 | Tamanho do ladrilho de fundo infinito | `src/rendering/nebula-canvas.ts` | `BACKGROUND_TILE_EXTENT` |
 | Volume padrão (efeitos / música) | `src/services/sound-settings.ts` | `default: 80` / `default: 50` (dentro de `game.settings.register`) |
 

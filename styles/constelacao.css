@@ -21,6 +21,33 @@
   --constelacao-font-quote: 'Cormorant Garamond', Georgia, serif;
 }
 
+/* ---------- Janela ---------- */
+
+.constelacao-apoteose.application {
+  border: 1px solid rgba(201, 182, 228, 0.25);
+  box-shadow: 0 0 40px -10px rgba(201, 182, 228, 0.35), 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.constelacao-apoteose .window-header {
+  background:
+    linear-gradient(90deg, transparent, rgba(232, 217, 160, 0.08) 50%, transparent),
+    linear-gradient(180deg, var(--constelacao-indigo) 0%, var(--constelacao-indigo-deep) 100%);
+  border-bottom: 1px solid rgba(232, 217, 160, 0.25);
+  color: var(--constelacao-pearl);
+}
+
+.constelacao-apoteose .window-header .window-title {
+  font-family: var(--constelacao-font-legend);
+  letter-spacing: 0.04em;
+  color: var(--constelacao-gold-pale);
+  text-shadow: 0 0 12px rgba(232, 217, 160, 0.35);
+}
+
+.constelacao-apoteose .window-header .window-icon,
+.constelacao-apoteose .window-header .header-control {
+  color: var(--constelacao-lavender);
+}
+
 /* ---------- Layout ---------- */
 
 .constelacao-apoteose .window-content {
@@ -507,6 +534,16 @@
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* Vinheta: as bordas escurecem de leve, puxando o olhar para o centro do céu. */
+.constelacao-canvas-wrapper::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 85% 80% at 50% 50%, transparent 55%, rgba(5, 4, 15, 0.6) 100%);
+  z-index: 1;
 }
 
 .constelacao-canvas-container {

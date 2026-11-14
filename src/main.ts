@@ -1,6 +1,7 @@
 import { MODULE_ID } from './constants';
 import { openConstellation, openObservatory, registerHooks } from './hooks/register-hooks';
 import { registerSoundSettings } from './services/sound-settings';
+import { registerDisplaySettings } from './services/display-settings';
 import { ConstellationService } from './services/constellation-service';
 
 const service = new ConstellationService();
@@ -8,6 +9,7 @@ const service = new ConstellationService();
 Hooks.once('init', () => {
   registerHooks();
   registerSoundSettings();
+  registerDisplaySettings();
 
   // API pública (API Interna, seção 8): o subconjunto seguro para macros e
   // outros módulos. Todas as escritas exigem Mestre.
