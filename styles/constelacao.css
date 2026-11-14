@@ -1,21 +1,10 @@
-/* Constelação da Apoteose — estilos base
- * Fase de refinamento visual (GDD, seção 8 — direção mística e etérea).
- *
- * Esta etapa cobre: paleta de cores, tipografia e o fundo etéreo dos três
- * painéis do Editor (barra de ferramentas, canvas, propriedades).
- *
- * Ainda pendente (próximas etapas): brilho/pulsação das estrelas,
- * gradiente e efeito de "acender" nos caminhos, easing suave de zoom/pan
- * da câmera — tudo isso vive em `nebula-canvas.ts` / `star-node.ts` /
- * `path-line.ts` / `camera-controller.ts`, não neste arquivo.
- */
+/* Constelação da Apoteose — direção mística e etérea (GDD §8).
+ * As cores do canvas (estrelas e caminhos) ficam em src/rendering/, porque
+ * o PIXI não lê CSS; aqui ficam janelas, painéis e formulários. */
 
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600&family=Cormorant+Garamond:ital,wght@0,400;1,400&display=swap');
 
 .constelacao-apoteose {
-  /* Paleta (GDD, seção 8): azul-anil e roxo-ameixa profundos como base do
-   * céu; dourado-pálido, lavanda e branco-perolado como acentos suaves.
-   * Raridade nunca usa cor gritante — só luminosidade e sutileza. */
   --constelacao-void: #0b0a1f;
   --constelacao-indigo-deep: #161034;
   --constelacao-indigo: #241b4e;
@@ -23,48 +12,41 @@
   --constelacao-gold-pale: #e8d9a0;
   --constelacao-lavender: #c9b6e4;
   --constelacao-pearl: #f5f3ff;
+  --constelacao-ash: #8a8398;
   --constelacao-mist: rgba(245, 243, 255, 0.05);
   --constelacao-border-soft: rgba(201, 182, 228, 0.16);
+  --constelacao-border: rgba(201, 182, 228, 0.3);
   --constelacao-glow-lavender: rgba(201, 182, 228, 0.25);
-
-  /* Tipografia (GDD, seção 8): serifada/caligráfica para nomes e
-   * citações — "lenda antiga sendo escrita"; interface funcional em
-   * fonte limpa (a padrão do Foundry já atende a esse segundo papel). */
   --constelacao-font-legend: 'Cinzel', 'Times New Roman', serif;
   --constelacao-font-quote: 'Cormorant Garamond', Georgia, serif;
 }
 
-.editor-application .window-content {
+/* ---------- Layout ---------- */
+
+.constelacao-apoteose .window-content {
   display: grid;
-  grid-template-columns: 200px 1fr 260px;
   gap: 0.5rem;
   height: 100%;
   min-height: 0;
+  padding: 0.5rem;
   background: var(--constelacao-void);
 }
 
-.editor-application .window-content > * {
-  min-height: 0;
-  min-width: 0;
+.editor-application .window-content {
+  grid-template-columns: 190px 1fr 290px;
 }
 
 .observatory-application .window-content {
-  display: grid;
-  grid-template-columns: 1fr 300px;
-  gap: 0.5rem;
-  height: 100%;
-  min-height: 0;
-  background: var(--constelacao-void);
+  grid-template-columns: 1fr 320px;
 }
 
-.observatory-application .window-content > * {
+.constelacao-apoteose .window-content > * {
   min-height: 0;
   min-width: 0;
 }
 
-/* Painéis (ferramentas e propriedades) — poeira cósmica como névoa suave,
- * nunca bordas rígidas: gradiente de fundo, borda quase invisível, brilho
- * difuso em vez de contorno duro. */
+/* ---------- Painéis ---------- */
+
 .constelacao-toolbar,
 .constelacao-panel {
   background:
@@ -78,38 +60,437 @@
   overflow-y: auto;
   overflow-x: hidden;
   max-height: 100%;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 182, 228, 0.4) transparent;
 }
 
-/* Scrollbar customizada (opcional, mais bonita) */
-.constelacao-panel::-webkit-scrollbar {
-  width: 8px;
+/* Conteúdo novo entra com um fade suave, nunca um corte seco. */
+.constelacao-panel-inner {
+  animation: constelacao-fade-in 0.35s ease-out;
 }
 
-.constelacao-panel::-webkit-scrollbar-track {
-  background: rgba(11, 10, 31, 0.3);
-  border-radius: 4px;
+@keyframes constelacao-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
 }
 
-.constelacao-panel::-webkit-scrollbar-thumb {
-  background: rgba(201, 182, 228, 0.4);
-  border-radius: 4px;
+.constelacao-panel label {
+  display: block;
+  margin-bottom: 0.55rem;
+  font-size: 0.88em;
+  color: var(--constelacao-lavender);
 }
 
-.constelacao-panel::-webkit-scrollbar-thumb:hover {
-  background: rgba(201, 182, 228, 0.6);
+.constelacao-panel input[type='text'],
+.constelacao-panel input[type='number'],
+.constelacao-panel textarea,
+.constelacao-panel select {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.15rem;
+  background: rgba(11, 10, 31, 0.5);
+  border: 1px solid var(--constelacao-border-soft);
+  border-radius: 6px;
+  color: var(--constelacao-pearl);
+}
+
+.constelacao-panel textarea {
+  resize: vertical;
+  font-family: inherit;
+}
+
+.constelacao-panel input:focus,
+.constelacao-panel textarea:focus,
+.constelacao-panel select:focus {
+  border-color: var(--constelacao-lavender);
+  box-shadow: 0 0 8px -2px var(--constelacao-glow-lavender);
+  outline: none;
+}
+
+.constelacao-panel input:disabled,
+.constelacao-panel select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.constelacao-apoteose button {
+  color: var(--constelacao-pearl);
+  background: rgba(201, 182, 228, 0.1);
+  border: 1px solid var(--constelacao-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.constelacao-apoteose button:hover:not(:disabled) {
+  background: rgba(201, 182, 228, 0.22);
+  border-color: rgba(201, 182, 228, 0.6);
+}
+
+.constelacao-apoteose button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.constelacao-section-title {
+  font-family: var(--constelacao-font-legend);
+  font-size: 1.15em;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+  color: var(--constelacao-gold-pale);
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.constelacao-subtitle {
+  font-family: var(--constelacao-font-legend);
+  font-size: 0.95em;
+  color: var(--constelacao-gold-pale);
+  margin: 1.1rem 0 0.4rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--constelacao-border-soft);
+}
+
+.constelacao-placeholder-note {
+  opacity: 0.7;
+  font-size: 0.85em;
+  font-family: var(--constelacao-font-quote);
+  font-style: italic;
+  color: var(--constelacao-lavender);
+  margin: 0.3rem 0 0.6rem;
+}
+
+.constelacao-hint {
+  opacity: 0.65;
+  font-size: 0.9em;
+}
+
+.constelacao-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.constelacao-panel-header-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex: none;
+}
+
+.constelacao-panel-header-actions button {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  line-height: 1;
+}
+
+.constelacao-toggle-row {
+  display: flex !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.constelacao-toggle-row input {
+  width: auto !important;
+  margin: 0;
+}
+
+.constelacao-toggle-row.disabled {
+  opacity: 0.6;
+}
+
+.constelacao-field-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 0.5rem;
+}
+
+.constelacao-color-row,
+.constelacao-media-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-top: 0.15rem;
+}
+
+.constelacao-media-row input {
+  flex: 1;
+  margin-top: 0 !important;
+}
+
+.constelacao-color-row input[type='color'],
+.constelacao-list-row input[type='color'] {
+  width: 2.2rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 1px solid var(--constelacao-border-soft);
+  border-radius: 6px;
+  background: none;
+  flex: none;
+}
+
+.constelacao-media-row button,
+.constelacao-color-row button,
+.constelacao-list-row button {
+  flex: none;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+}
+
+.constelacao-media-preview {
+  display: block;
+  max-width: 100%;
+  max-height: 120px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--constelacao-border);
+  margin: 0 0 0.6rem;
+}
+
+.constelacao-gm-notes {
+  background: rgba(232, 217, 160, 0.06) !important;
+  border-color: rgba(232, 217, 160, 0.3) !important;
+}
+
+.constelacao-details {
+  margin: 0.8rem 0 0.3rem;
+  border-top: 1px solid var(--constelacao-border-soft);
+  padding-top: 0.6rem;
+}
+
+.constelacao-details > summary {
+  cursor: pointer;
+  font-family: var(--constelacao-font-legend);
+  font-size: 0.92em;
+  color: var(--constelacao-gold-pale);
+  margin-bottom: 0.5rem;
+}
+
+.constelacao-list-row {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin-bottom: 0.3rem;
+}
+
+.constelacao-list-row input[type='text'] {
+  flex: 1;
+  margin: 0;
+}
+
+.constelacao-list-row input[type='number'] {
+  width: 3.2rem;
+  flex: none;
+  margin: 0;
+}
+
+.constelacao-add-button {
+  font-size: 0.85em;
+  padding: 0.25rem 0.6rem;
+  margin: 0.2rem 0 0.4rem;
+}
+
+.constelacao-chip-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.constelacao-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0.2rem 0.1rem 0.55rem;
+  border-radius: 999px;
+  border: 1px dashed rgba(232, 217, 160, 0.6);
+  color: var(--constelacao-gold-pale);
+  font-size: 0.85em;
+}
+
+.constelacao-chip button {
+  border: none !important;
+  background: none !important;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  font-size: 0.8em;
+}
+
+.constelacao-button-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.constelacao-button-row button {
+  flex: 1;
+  padding: 0.3rem 0.5rem;
+}
+
+.constelacao-connection {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-family: var(--constelacao-font-legend);
+}
+
+.constelacao-connection a,
+.constelacao-link-list a {
+  color: var(--constelacao-pearl);
+  cursor: pointer;
+}
+
+.constelacao-connection a:hover,
+.constelacao-link-list a:hover {
+  color: var(--constelacao-gold-pale);
+  text-shadow: 0 0 8px var(--constelacao-glow-lavender);
+}
+
+.constelacao-overview {
+  font-size: 0.88em;
+  opacity: 0.85;
+}
+
+/* ---------- Situação do Aspecto ---------- */
+
+.constelacao-status {
+  display: inline-block;
+  font-size: 0.8em;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  margin: 0 0 0.6rem;
+  border: 1px solid currentColor;
+}
+
+.constelacao-status--unlocked { color: var(--constelacao-gold-pale); }
+.constelacao-status--available { color: var(--constelacao-pearl); }
+.constelacao-status--prerequisite { color: var(--constelacao-lavender); }
+.constelacao-status--excluded { color: var(--constelacao-ash); }
+
+.constelacao-status-box {
+  margin-top: 0.9rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid currentColor;
+  background: rgba(11, 10, 31, 0.35);
+}
+
+.constelacao-status-box p {
+  margin: 0.25rem 0 0;
+  font-family: var(--constelacao-font-quote);
+  font-style: italic;
+  color: var(--constelacao-pearl);
+  opacity: 0.85;
+}
+
+/* ---------- Ferramentas do Editor ---------- */
+
+.constelacao-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.6rem;
 }
 
 .constelacao-tool-button {
   width: 100%;
-  margin-bottom: 0.5rem;
+  text-align: left;
+  padding: 0.35rem 0.6rem;
+}
+
+.constelacao-tool-button i {
+  width: 1.2em;
+  text-align: center;
+  margin-right: 0.3rem;
 }
 
 .constelacao-tool-button.active {
-  filter: brightness(1.4);
+  background: rgba(232, 217, 160, 0.18) !important;
+  border-color: rgba(232, 217, 160, 0.7) !important;
+  box-shadow: 0 0 12px -4px rgba(232, 217, 160, 0.6);
+  color: var(--constelacao-gold-pale);
 }
 
-/* Canvas — o próprio céu da constelação. Camadas de gradiente radial
- * simulam nebulosa/poeira cósmica sem recorrer a ruído áspero. */
+.constelacao-tool-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+}
+
+.constelacao-tool-row button {
+  height: 2rem;
+  padding: 0;
+}
+
+.constelacao-points {
+  padding: 0.55rem;
+  border-radius: 8px;
+  border: 1px solid rgba(232, 217, 160, 0.35);
+  background: rgba(232, 217, 160, 0.06);
+  margin-bottom: 0.6rem;
+  text-align: center;
+}
+
+.constelacao-points-label {
+  font-size: 0.8em;
+  color: var(--constelacao-gold-pale);
+}
+
+.constelacao-points-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+}
+
+.constelacao-points-row button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+}
+
+.constelacao-points-value {
+  font-family: var(--constelacao-font-legend);
+  font-size: 1.6em;
+  color: var(--constelacao-gold-pale);
+}
+
+.constelacao-shortcuts {
+  font-size: 0.8em;
+  color: var(--constelacao-lavender);
+}
+
+.constelacao-shortcuts summary {
+  cursor: pointer;
+}
+
+.constelacao-shortcuts ul {
+  padding-left: 1rem;
+  margin: 0.4rem 0 0;
+}
+
+.constelacao-shortcuts li {
+  margin-bottom: 0.25rem;
+}
+
+.constelacao-shortcuts kbd {
+  font-size: 0.9em;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  border: 1px solid var(--constelacao-border);
+  background: rgba(11, 10, 31, 0.5);
+  color: var(--constelacao-pearl);
+}
+
+/* ---------- Canvas ---------- */
+
 .constelacao-canvas-placeholder {
   background:
     radial-gradient(ellipse 70% 55% at 30% 20%, rgba(201, 182, 228, 0.10), transparent 60%),
@@ -131,6 +512,7 @@
 .constelacao-canvas-container {
   width: 100%;
   height: 100%;
+  outline: none;
 }
 
 .constelacao-canvas-container canvas {
@@ -143,119 +525,160 @@
   right: 0.75rem;
   width: 2.2rem;
   height: 2.2rem;
-  border-radius: 50%;
-  border: 1px solid var(--constelacao-border-soft);
-  background: var(--constelacao-indigo);
-  color: var(--constelacao-lavender);
+  border-radius: 50% !important;
+  background: var(--constelacao-indigo) !important;
+  color: var(--constelacao-lavender) !important;
   font-size: 1.1em;
-  cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 2;
 }
 
-.constelacao-recenter-button:hover {
-  background: var(--constelacao-plum);
-  color: var(--constelacao-pearl);
-}
+/* ---------- Observatório ---------- */
 
-.constelacao-panel label {
-  display: block;
-  margin-bottom: 0.5rem;
+.constelacao-aspect-subtitle {
+  margin: -0.3rem 0 0.5rem;
   font-size: 0.9em;
   color: var(--constelacao-lavender);
 }
 
-.constelacao-panel input[type='text'],
-.constelacao-panel textarea,
-.constelacao-panel select {
+.constelacao-aspect-image {
+  display: block;
   width: 100%;
-  box-sizing: border-box;
-  background: rgba(11, 10, 31, 0.5);
-  border: 1px solid var(--constelacao-border-soft);
-  border-radius: 6px;
-  color: var(--constelacao-pearl);
+  max-height: 200px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--constelacao-border);
+  box-shadow: 0 0 18px -4px var(--aspect-color, var(--constelacao-glow-lavender));
+  margin: 0.3rem 0 0.8rem;
 }
 
-.constelacao-panel input:disabled,
-.constelacao-panel textarea:disabled,
-.constelacao-panel select:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-  background: rgba(11, 10, 31, 0.25);
-}
-
-.constelacao-toggle-row {
-  display: flex !important;
-  align-items: center;
-  gap: 0.4rem;
-}
-
-.constelacao-toggle-row input {
-  width: auto !important;
-}
-
-.constelacao-gm-notes {
-  background: rgba(232, 217, 160, 0.06) !important;
-  border-color: rgba(232, 217, 160, 0.3) !important;
-}
-
-.constelacao-gm-notes::before {
-  content: "🔒 ";
-}
-
-/* Nomes de Aspectos e o nome do Ator — a "lenda sendo escrita". */
-.constelacao-section-title {
-  font-family: var(--constelacao-font-legend);
-  font-size: 1.15em;
-  letter-spacing: 0.02em;
-  font-weight: 600;
-  color: var(--constelacao-gold-pale);
-  margin-bottom: 0.5rem;
-}
-
-.constelacao-placeholder-note {
-  opacity: 0.65;
-  font-size: 0.85em;
+.constelacao-quote {
+  border-left: 3px solid var(--constelacao-gold-pale);
+  padding-left: 0.6rem;
+  margin: 0.5rem 0 0.8rem;
   font-family: var(--constelacao-font-quote);
+  font-size: 1.1em;
   font-style: italic;
+  color: var(--constelacao-gold-pale);
+}
+
+.constelacao-description {
+  line-height: 1.55;
+}
+
+.constelacao-description p {
+  margin: 0 0 0.6rem;
+}
+
+.constelacao-tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0;
+  margin: 0.8rem 0 0;
+}
+
+.constelacao-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8em;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--tag-color, var(--constelacao-border));
   color: var(--constelacao-lavender);
 }
 
-.constelacao-media-picker {
-  background: rgba(201, 182, 228, 0.15);
-  border: 1px solid rgba(201, 182, 228, 0.3);
-  border-radius: 4px;
+.constelacao-tag--rarity {
+  border-color: var(--aspect-color);
   color: var(--constelacao-pearl);
-  cursor: pointer;
-  transition: all 0.2s ease;
 }
 
-.constelacao-media-picker:hover {
-  background: rgba(201, 182, 228, 0.25);
-  border-color: rgba(201, 182, 228, 0.6);
+.constelacao-swatch {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--aspect-color);
+  box-shadow: 0 0 6px var(--aspect-color);
 }
 
-/* Botão Observatory injected na ficha de Ator */
-.constelacao-observatory-button {
-  background: linear-gradient(135deg, rgba(232, 217, 160, 0.2), rgba(201, 182, 228, 0.15));
-  border: 1px solid rgba(201, 182, 228, 0.4);
-  border-radius: 4px;
-  color: var(--constelacao-gold-pale);
-  padding: 0.5rem 1rem;
-  margin: 0.5rem 0;
-  cursor: pointer;
-  font-family: var(--constelacao-font-legend);
-  font-weight: 600;
-  transition: all 0.2s ease;
-  display: block;
-  width: 100%;
+.constelacao-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+
+.constelacao-stats > div {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0.2rem;
+  border-radius: 8px;
+  border: 1px solid var(--constelacao-border-soft);
+  background: rgba(11, 10, 31, 0.3);
   text-align: center;
 }
 
-.constelacao-observatory-button:hover {
-  background: linear-gradient(135deg, rgba(232, 217, 160, 0.35), rgba(201, 182, 228, 0.25));
-  border-color: rgba(201, 182, 228, 0.7);
-  box-shadow: 0 0 16px -4px rgba(232, 217, 160, 0.4);
+.constelacao-stats strong {
+  font-family: var(--constelacao-font-legend);
+  font-size: 1.4em;
+  color: var(--constelacao-pearl);
+}
+
+.constelacao-stats span {
+  font-size: 0.72em;
+  color: var(--constelacao-lavender);
+}
+
+.constelacao-stats-points {
+  border-color: rgba(232, 217, 160, 0.4) !important;
+}
+
+.constelacao-stats-points strong {
+  color: var(--constelacao-gold-pale);
+}
+
+.constelacao-link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.constelacao-link-list li {
+  padding: 0.2rem 0;
+}
+
+.constelacao-timeline {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+}
+
+.constelacao-timeline li {
+  margin-bottom: 0.55rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--constelacao-border);
+}
+
+.constelacao-timeline-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8em;
+  color: var(--constelacao-lavender);
+}
+
+.constelacao-timeline-meta button {
+  border: none !important;
+  background: none !important;
+  padding: 0 0.2rem;
+  opacity: 0.5;
+}
+
+.constelacao-timeline-meta button:hover {
+  opacity: 1;
 }

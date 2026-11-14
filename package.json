@@ -1,13 +1,15 @@
 {
   "name": "constelacao-da-apoteose",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sistema de evolução narrativa para Foundry VTT",
   "type": "module",
   "private": true,
   "scripts": {
     "build": "node esbuild.config.mjs",
     "watch": "node esbuild.config.mjs --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run.mjs",
+    "preview": "node test/preview/serve.mjs"
   },
   "devDependencies": {
     "@league-of-foundry-developers/foundry-vtt-types": "^13.346.0-beta.20250812191140",

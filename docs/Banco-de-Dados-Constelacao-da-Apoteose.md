@@ -4,7 +4,9 @@
 **Versão do documento:** 1.2
 **Data:** 12/07/2026 (revisado em 13/07/2026, revisado em 25/07/2026)
 **Depende de:** GDD v1.2 · TDD v1.0 · Arquitetura de Software v1.0 · Estrutura de Pastas v1.0 (todos aprovados)
-**Status:** Aprovado — reflete o schema real em produção (schemaVersion 2)
+**Status:** Aprovado — reflete o schema real em produção (schemaVersion 3)
+
+> **Changelog v1.3 (14/11/2026, módulo 0.2.0):** schema v3. A exclusão mútua sai de `PathConnection.excludedByNodeIds` e vira `ConstellationDefinition.exclusions` (pares simétricos de Aspectos, seção 5). `PlayerVisibleNode` ganha `status`, calculado pelo Mestre (seção 5.2). A flag `unlockRequest` do Ator deixa de existir (o jogador não pede mais desbloqueio pelo módulo) e é apagada na migração. A migração 2→3 roda sozinha quando o Mestre ativo entra no mundo.
 
 > **Changelog v1.2 (25/07/2026):** o schema evoluiu de `schemaVersion: 1` para `2` durante a implementação, com uma migração real e automática entre as duas versões (seção 9, reescrita por completo — deixou de ser um placeholder). Mudanças de schema desta versão:
 > - Novo campo `backgroundMusic?: string` em `ConstellationDefinition` e `PlayerConstellationState` (seções 6 e 7) — música de fundo da constelação, mesmo padrão de `background`.
@@ -125,26 +127,39 @@ Note o que **não** existe aqui: `visibility` (se está neste array, já é `rev
 
 ---
 
-## 5. PathConnection — conexões e exclusão mútua
+## 5. PathConnection e ExclusionPair — caminhos e exclusão mútua
 
 ```typescript
 interface PathConnection {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  excludedByNodeIds?: string[];   // se qualquer um destes nós for desbloqueado, este caminho fecha permanentemente
+}
+
+interface ExclusionPair {   // ConstellationDefinition.exclusions (schema v3)
+  a: string;                // desbloquear um dos dois fecha o outro, nos dois sentidos
+  b: string;
 }
 ```
 
-Uma conexão só aparece no Estado do Jogador se **ambos** `fromNodeId` e `toNodeId` já estiverem revelados — isso é calculado, não armazenado separadamente, evitando duas fontes de verdade para a mesma informação.
+Uma conexão só aparece no Estado do Jogador se **ambos** `fromNodeId` e `toNodeId` já estiverem revelados — isso é calculado, não armazenado separadamente. As exclusões **nunca** vão para o Estado do Jogador.
 
-A exclusão mútua também é sempre calculada a partir do conjunto de nós já desbloqueados no momento — como desbloquear um nó é permanente neste sistema (não existe "desfazer" um Aspecto conquistado), calcular ao vivo é equivalente a travar para sempre, sem precisar de um campo extra de "bloqueio permanente". Um Aspecto-alvo só é considerado bloqueado quando **todas** as conexões que chegam até ele estão fechadas — se ele tiver mais de uma origem e só uma delas foi excluída, ele continua acessível pela outra.
+A situação de cada Aspecto (`NodeStatus`: `unlocked`, `available`, `prerequisite`, `excluded`) é sempre calculada a partir dos nós desbloqueados, por `computeNodeStatuses` (`src/utils/node-status.ts`):
 
-Desde a migração de schema 1→2 (seção 9), `excludedByNodeIds` está garantido como array (nunca `undefined`) em qualquer documento já lido pelo repositório — o tipo continua opcional no TypeScript por segurança, mas na prática nunca falta.
+1. desbloqueado vence tudo;
+2. se o par de exclusão de um Aspecto foi desbloqueado, ele fecha (`excluded`);
+3. **ramo morto:** se todos os caminhos que chegam a um Aspecto vêm de Aspectos fechados, ele fecha também (propaga até estabilizar). Por isso basta marcar a exclusão entre as duas escolhas rivais; o resto do ramo segue sozinho;
+4. pré-requisito (seção 5.1).
 
-### 5.1 Pré-requisito de compra em cadeia *(regra nova, não existia no schema v1)*
+*Até o schema v2* a exclusão morava em `PathConnection.excludedByNodeIds` e só valia num sentido. Dois defeitos levaram à troca: um caminho novo até um Aspecto já excluído o reabria em silêncio, e marcar "A exclui B" marcava junto tudo que vinha depois de B. A migração 2→3 (seção 9) converte os dados antigos.
 
-Diferente da exclusão mútua, o pré-requisito **não tem um campo próprio no schema** — é inteiramente derivado da direção das conexões que já existem: um `AspectNode` só pode ser desbloqueado se pelo menos uma conexão com `toNodeId` igual ao dele tiver seu `fromNodeId` já `unlocked`, ou se ele for o `initialNodeId` da constelação (única exceção, sempre liberado). Ver `src/utils/prerequisites.ts` (`computePrerequisiteLockedNodeIds`) para a implementação exata — o mesmo padrão de "calculado ao vivo, nunca armazenado" da exclusão mútua.
+### 5.1 Pré-requisito de compra em cadeia
+
+O pré-requisito **não tem um campo próprio no schema** — é derivado da direção dos caminhos: um Aspecto com caminhos de chegada só pode ser desbloqueado se pelo menos uma origem já estiver `unlocked`. Sem caminho de chegada (o nó inicial ou um nó solto), está disponível.
+
+### 5.2 Estado do Jogador já traz a situação
+
+`PlayerVisibleNode.status` é gravado pelo Mestre junto com o Estado do Jogador, calculado sobre a Definição Mestra inteira (inclusive nós ocultos e exclusões). O jogador recebe o resultado pronto e nunca vê o que o determinou.
 
 ---
 

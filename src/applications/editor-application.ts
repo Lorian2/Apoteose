@@ -1,23 +1,42 @@
-import { ASPECT_TYPE_LABELS, MODULE_ID } from '../constants';
+import { ASPECT_TYPE_LABELS, MODULE_ID, NODE_STATUS_LABELS } from '../constants';
 import { ConstellationError } from '../errors';
-import { NebulaCanvas } from '../rendering/nebula-canvas';
-import { ConstellationService } from '../services/constellation-service';
-import { computeBlockedNodeIds } from '../utils/exclusion';
-import { computePrerequisiteLockedNodeIds } from '../utils/prerequisites';
-import { playMediaSound } from '../utils/sound';
+import { NebulaCanvas, type NebulaCanvasMode } from '../rendering/nebula-canvas';
+import { ObservatoryApplication } from './observatory-application';
 import { BackgroundMusicPlayer } from '../rendering/background-music';
-import type { AspectNode, ConstellationDefinition, Position } from '../types/constellation';
+import { ConstellationService } from '../services/constellation-service';
+import { computeNodeStatuses, exclusivePartners } from '../utils/node-status';
+import { escapeHTML } from '../utils/html';
+import { playMediaSound } from '../utils/sound';
+import type { AspectNode, ConstellationDefinition, NodeStatus, Position } from '../types/constellation';
 
 interface EditorApplicationOptions {
   actorId: string;
 }
 
+const UNDO_LIMIT = 50;
+
+const MODES: { id: NebulaCanvasMode; label: string; icon: string; hint: string }[] = [
+  { id: 'select', label: 'Selecionar', icon: 'fa-solid fa-arrow-pointer', hint: 'Clique para editar, arraste para mover.' },
+  { id: 'create', label: 'Criar', icon: 'fa-solid fa-star', hint: 'Clique no vazio para criar um Aspecto.' },
+  { id: 'connect', label: 'Conectar', icon: 'fa-solid fa-diagram-project', hint: 'Clique na origem e depois no destino.' },
+  { id: 'remove', label: 'Remover', icon: 'fa-solid fa-eraser', hint: 'Clique numa estrela ou caminho para remover.' },
+];
+
+const MEDIA_FIELDS = [
+  { field: 'icon', label: 'Ícone', type: 'image' },
+  { field: 'image', label: 'Imagem do Aspecto', type: 'image' },
+  { field: 'soundReveal', label: 'Som ao revelar', type: 'audio' },
+  { field: 'soundUnlock', label: 'Som ao desbloquear', type: 'audio' },
+  { field: 'soundSelect', label: 'Som ao selecionar', type: 'audio' },
+] as const;
+
+type Action = (this: EditorApplication, event: PointerEvent, target: HTMLElement) => void;
+
 /**
- * Janela principal do Editor do Mestre (Arquitetura de Software, seção 2 ·
- * Wireframes, seção 1-2). O canvas PIXI já suporta seleção, arraste
- * (persistido via moveNode) e um modo de conexão (persistido via
- * connectNodes). Bloqueio mútuo e criação de nó pelo canvas ainda não
- * existem — ficam para a próxima etapa.
+ * Editor do Mestre. O canvas PIXI cuida da interação direta (selecionar,
+ * arrastar, criar, conectar, remover); o painel lateral edita o que está
+ * selecionado. Toda escrita passa por `#run`, que guarda um retrato da
+ * Definição Mestra para Desfazer/Refazer e redesenha tudo ao final.
  */
 export class EditorApplication extends foundry.applications.api.HandlebarsApplicationMixin(
   foundry.applications.api.ApplicationV2,
@@ -30,50 +49,102 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       resizable: true,
     },
     position: {
-      width: 900,
-      height: 640,
+      width: 1100,
+      height: 700,
     },
     actions: {
-      toggleConnectMode(this: EditorApplication) {
-        this.#toggleConnectMode();
+      setMode: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        this.#setMode((target.dataset.mode as NebulaCanvasMode) ?? 'select');
       },
-      toggleCreateMode(this: EditorApplication) {
-        this.#toggleCreateMode();
+      grantPoint: function (this: EditorApplication) {
+        void this.#run(() => this.#service.grantPoint(this.#actorId));
       },
-      toggleRemoveMode(this: EditorApplication) {
-        this.#toggleRemoveMode();
+      revokePoint: function (this: EditorApplication) {
+        void this.#run(() => this.#service.revokePoint(this.#actorId));
       },
-      grantPoint(this: EditorApplication) {
-        void this.#handleGrantPoint();
+      undo: function (this: EditorApplication) {
+        void this.#undo();
       },
-      revokePoint(this: EditorApplication) {
-        void this.#handleRevokePoint();
+      redo: function (this: EditorApplication) {
+        void this.#redo();
       },
-      recenterView(this: EditorApplication) {
-        this.#canvas?.recenterView();
+      fitView: function (this: EditorApplication) {
+        this.#canvas?.fitView();
       },
-      addCategory(this: EditorApplication) {
-        void this.#handleAddCategory();
+      openPlayerView: function (this: EditorApplication) {
+        const existing = foundry.applications.instances.get(`constelacao-apoteose-observatory-${this.#actorId}`);
+        if (existing) existing.bringToFront();
+        else void new ObservatoryApplication(this.#actorId).render({ force: true });
       },
-      removeCategory(this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
-        void this.#handleRemoveCategory(target.dataset.categoryId);
+      focusNode: function (this: EditorApplication) {
+        if (this.#selectedNodeId) this.#canvas?.focusNode(this.#selectedNodeId);
       },
-      addRarity(this: EditorApplication) {
-        void this.#handleAddRarity();
+      selectNode: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const nodeId = target.dataset.nodeId;
+        if (!nodeId) return;
+        this.#canvas?.setSelectedNode(nodeId);
+        this.#canvas?.focusNode(nodeId);
+        this.#handleNodeSelected(nodeId);
       },
-      removeRarity(this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
-        void this.#handleRemoveRarity(target.dataset.rarityId);
+      clearSelection: function (this: EditorApplication) {
+        this.#clearSelection();
       },
-      logHistoryEntry(this: EditorApplication) {
-        void this.#handleLogHistoryEntry();
+      removeSelected: function (this: EditorApplication) {
+        void this.#removeSelected();
       },
-    },
+      reverseConnection: function (this: EditorApplication) {
+        const connectionId = this.#selectedConnectionId;
+        if (connectionId) void this.#run(() => this.#service.reverseConnection(this.#actorId, connectionId));
+      },
+      removeExclusion: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const nodeId = this.#selectedNodeId;
+        const partnerId = target.dataset.partnerId;
+        if (nodeId && partnerId) {
+          void this.#run(() => this.#service.setExclusive(this.#actorId, nodeId, partnerId, false));
+        }
+      },
+      clearNodeColor: function (this: EditorApplication) {
+        const nodeId = this.#selectedNodeId;
+        if (nodeId) void this.#run(() => this.#service.updateNode(this.#actorId, nodeId, { color: '' }));
+      },
+      pickMedia: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        this.#pickMedia(target);
+      },
+      addCategory: function (this: EditorApplication) {
+        const categories = [...this.#definition().categories, { id: foundry.utils.randomID(), label: 'Nova categoria' }];
+        void this.#run(() => this.#service.updateCategories(this.#actorId, categories));
+      },
+      removeCategory: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const categories = this.#definition().categories.filter((category) => category.id !== target.dataset.categoryId);
+        void this.#run(() => this.#service.updateCategories(this.#actorId, categories));
+      },
+      addRarity: function (this: EditorApplication) {
+        const rarities = this.#definition().rarities;
+        const next = [
+          ...rarities,
+          { id: foundry.utils.randomID(), label: 'Nova raridade', color: '#c9b6e4', order: rarities.length },
+        ];
+        void this.#run(() => this.#service.updateRarities(this.#actorId, next));
+      },
+      removeRarity: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const rarities = this.#definition().rarities.filter((rarity) => rarity.id !== target.dataset.rarityId);
+        void this.#run(() => this.#service.updateRarities(this.#actorId, rarities));
+      },
+      logHistoryEntry: function (this: EditorApplication) {
+        void this.#logHistoryEntry();
+      },
+      removeHistoryEntry: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const index = Number(target.dataset.index);
+        if (Number.isInteger(index)) void this.#run(() => this.#service.removeHistoryEntry(this.#actorId, index));
+      },
+    } satisfies Record<string, Action>,
   };
 
   static override PARTS = {
     toolbar: {
       template: `modules/${MODULE_ID}/templates/editor-toolbar.hbs`,
       classes: ['constelacao-toolbar'],
+      scrollable: [''],
     },
     canvas: {
       template: `modules/${MODULE_ID}/templates/editor-canvas.hbs`,
@@ -82,114 +153,138 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
     panel: {
       template: `modules/${MODULE_ID}/templates/editor-panel.hbs`,
       classes: ['constelacao-panel'],
+      scrollable: [''],
     },
   };
 
   readonly #actorId: string;
-  readonly #service: ConstellationService;
+  readonly #service = new ConstellationService();
   readonly #music = new BackgroundMusicPlayer();
   #canvas: NebulaCanvas | undefined;
   #lastDefinition: ConstellationDefinition | undefined;
   #selectedNodeId: string | null = null;
-  #connectModeActive = false;
-  #createModeActive = false;
-  #removeModeActive = false;
+  #selectedConnectionId: string | null = null;
+  #mode: NebulaCanvasMode = 'select';
+  #undoStack: ConstellationDefinition[] = [];
+  #redoStack: ConstellationDefinition[] = [];
+  #journalHook: number | undefined;
 
   constructor(options: EditorApplicationOptions) {
     super({ id: `constelacao-apoteose-editor-${options.actorId}` });
     this.#actorId = options.actorId;
-    this.#service = new ConstellationService();
+  }
+
+  override get title(): string {
+    const base = game.i18n?.localize('CONSTELACAO_APOTEOSE.EditorTitle') ?? 'Constelação da Apoteose — Editor';
+    const name = game.actors?.get(this.#actorId)?.name;
+    return name ? `${base}: ${name}` : base;
   }
 
   protected override async _prepareContext(): Promise<object> {
-    const actor = game.actors?.get(this.#actorId);
-    const definition = await this.#service.getMasterDefinition(this.#actorId);
-    this.#lastDefinition = definition;
+    const definition = (this.#lastDefinition ??= await this.#service.getMasterDefinition(this.#actorId));
     void this.#music.setTrack(definition.backgroundMusic);
+    const statuses = computeNodeStatuses(definition.nodes, definition.connections, definition.exclusions);
+    const nodeName = (id: string) => definition.nodes.find((node) => node.id === id)?.name ?? '';
 
     const selectedNode = this.#selectedNodeId
       ? definition.nodes.find((node) => node.id === this.#selectedNodeId)
       : undefined;
+    const selectedConnection = this.#selectedConnectionId
+      ? definition.connections.find((connection) => connection.id === this.#selectedConnectionId)
+      : undefined;
+    const currentMode = MODES.find((mode) => mode.id === this.#mode) ?? MODES[0];
 
     return {
-      actorName: actor?.name ?? '(Ator não encontrado)',
+      actorName: game.actors?.get(this.#actorId)?.name ?? '(Ator não encontrado)',
       nodeCount: definition.nodes.length,
+      unlockedCount: definition.nodes.filter((node) => node.unlocked).length,
       hiddenCount: definition.nodes.filter((node) => node.visibility === 'hidden').length,
       unspentPoints: definition.unspentPoints,
-      connectModeActive: this.#connectModeActive,
-      createModeActive: this.#createModeActive,
-      removeModeActive: this.#removeModeActive,
+      modes: MODES.map((mode) => ({ ...mode, active: mode.id === this.#mode })),
+      modeHint: currentMode.hint,
+      canUndo: this.#undoStack.length > 0,
+      canRedo: this.#redoStack.length > 0,
       categories: definition.categories,
       rarities: definition.rarities,
       background: definition.background ?? '',
       backgroundMusic: definition.backgroundMusic ?? '',
-      history: [...definition.history].reverse().map((entry) => ({
-        ...entry,
-        nodeName: definition.nodes.find((node) => node.id === entry.nodeId)?.name ?? '',
-      })),
+      history: definition.history
+        .map((entry, index) => ({ ...entry, index, nodeName: entry.nodeId ? nodeName(entry.nodeId) : '' }))
+        .reverse(),
       nodeTypes: Object.entries(ASPECT_TYPE_LABELS).map(([value, label]) => ({ value, label })),
-      selectedNode: selectedNode ? this.#toPanelViewModel(selectedNode, definition) : null,
-      isGM: game.user?.isGM ?? false,
+      selectedNode: selectedNode
+        ? this.#toPanelViewModel(selectedNode, definition, statuses.get(selectedNode.id) ?? 'available')
+        : null,
+      selectedConnection: selectedConnection
+        ? {
+            fromId: selectedConnection.fromNodeId,
+            toId: selectedConnection.toNodeId,
+            fromName: nodeName(selectedConnection.fromNodeId),
+            toName: nodeName(selectedConnection.toNodeId),
+          }
+        : null,
     };
   }
 
   protected override async _onFirstRender(context: object, options: object): Promise<void> {
     await super._onFirstRender(context, options);
     this.#mountCanvas();
-    // Delegação num elemento estável: sobrevive aos re-renders parciais do
-    // painel, que substituem só o conteúdo interno, não este listener.
+
+    // Delegação no elemento raiz: sobrevive aos re-renders parciais.
     this.element.addEventListener('change', (event) => {
       const target = event.target;
-      if (target instanceof HTMLElement && target.closest('[data-constellation-form]')) {
-        void this.#onConstellationFieldChange(event);
-      } else {
-        void this.#onPanelFieldChange(event);
-      }
+      if (!(target instanceof HTMLElement)) return;
+      if (target.closest('[data-constellation-form]')) void this.#onConstellationFieldChange(target);
+      else if (target.closest('[data-panel-form]')) void this.#onPanelFieldChange(target);
     });
-    // Listener para botões de file picker — usa .closest() pra ser mais robusto
-    this.element.addEventListener('click', (event) => {
-      const button = (event.target as HTMLElement).closest('.constelacao-media-picker');
-      if (button instanceof HTMLButtonElement) {
-        event.preventDefault();
-        void this.#handleMediaPickerClick(button);
-      }
-    });
-    // Atalhos de teclado
     this.element.addEventListener('keydown', this.#onKeyDown);
+
+    // Outro Mestre (ou outra janela) mexeu nesta constelação.
+    this.#journalHook = Hooks.on(
+      'updateJournalEntry',
+      (journal: JournalEntry, _changes: object, _options: object, userId: string) => {
+        if (userId === game.user?.id || journal.id !== this.#service.getMasterJournalId(this.#actorId)) return;
+        void this.#reload();
+      },
+    );
   }
 
   protected override _onClose(options: object): void {
+    if (this.#journalHook !== undefined) Hooks.off('updateJournalEntry', this.#journalHook);
     this.#canvas?.destroy();
     this.#canvas = undefined;
     this.#music.stop();
     super._onClose(options);
   }
 
-  #toPanelViewModel(node: AspectNode, definition: ConstellationDefinition) {
-    const blocked = computeBlockedNodeIds(definition.nodes, definition.connections).has(node.id);
-    const prerequisiteLocked = computePrerequisiteLockedNodeIds(definition.nodes, definition.connections).has(
-      node.id,
-    );
+  // -------------------------------------------------------------------
+  // Painel
+  // -------------------------------------------------------------------
 
-    // Lista os OUTROS Aspectos conectados por pelo menos um caminho (não faz
-    // sentido excluir um nó sem nenhuma ligação, nem a si mesmo) — marcar um
-    // deles fecha TODOS os caminhos que chegam até ele de uma vez, então não
-    // tem como esquecer de marcar "só metade" quando o alvo tem mais de uma
-    // origem (Banco de Dados, seção 5).
-    const excludableTargets = definition.nodes
-      .filter((candidate) => candidate.id !== node.id)
-      .map((candidate) => {
-        const touching = definition.connections.filter(
-          (connection) => connection.fromNodeId === candidate.id || connection.toNodeId === candidate.id,
-        );
-        return { id: candidate.id, name: candidate.name, touching };
-      })
-      .filter((entry) => entry.touching.length > 0)
-      .map((entry) => ({
-        id: entry.id,
-        label: entry.name,
-        excluded: entry.touching.every((connection) => (connection.excludedByNodeIds ?? []).includes(node.id)),
-      }));
+  #toPanelViewModel(node: AspectNode, definition: ConstellationDefinition, status: NodeStatus) {
+    const isInitial = node.id === definition.initialNodeId;
+    const partnerIds = new Set(exclusivePartners(node.id, definition.exclusions));
+    const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+
+    let unlockHint = '';
+    let unlockDisabled = false;
+    if (isInitial) {
+      unlockHint = '(Aspecto inicial)';
+      unlockDisabled = true;
+    } else if (node.unlocked) {
+      unlockHint = '(desmarcar devolve o Ponto)';
+    } else if (status === 'excluded') {
+      unlockHint = '(caminho fechado)';
+      unlockDisabled = true;
+    } else if (status === 'prerequisite') {
+      unlockHint = '(falta um Aspecto anterior)';
+      unlockDisabled = true;
+    } else if (definition.unspentPoints <= 0) {
+      unlockHint = '(conceda um Ponto antes)';
+      unlockDisabled = true;
+    } else {
+      unlockHint = `(gasta 1 de ${definition.unspentPoints} Ponto(s))`;
+    }
 
     return {
       id: node.id,
@@ -197,433 +292,364 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       subtitle: node.subtitle ?? '',
       quote: node.quote ?? '',
       description: node.description ?? '',
+      requirements: node.requirements ?? '',
       gmNotes: node.gmNotes ?? '',
       categoryId: node.categoryId ?? '',
       rarityId: node.rarityId,
       type: node.type,
+      color: node.color ?? '',
+      colorValue: node.color || definition.rarities.find((rarity) => rarity.id === node.rarityId)?.color || '#c9b6e4',
       revealed: node.visibility === 'revealed',
       unlocked: node.unlocked,
-      media: node.media ?? {},
-      excludableTargets,
-      blocked,
-      prerequisiteLocked,
+      isInitial,
+      status,
+      statusLabel: NODE_STATUS_LABELS[status],
+      unlockHint,
+      unlockDisabled,
+      exclusivePartners: definition.nodes.filter((candidate) => partnerIds.has(candidate.id)).sort(byName),
+      exclusionCandidates: definition.nodes
+        .filter((candidate) => candidate.id !== node.id && !partnerIds.has(candidate.id))
+        .sort(byName),
+      mediaFields: MEDIA_FIELDS.map((entry) => ({ ...entry, value: node.media?.[entry.field] ?? '' })),
     };
   }
 
+  async #onPanelFieldChange(target: HTMLElement): Promise<void> {
+    const nodeId = target.closest<HTMLElement>('[data-panel-form]')?.dataset.nodeId;
+    const input = target as HTMLInputElement;
+    const field = input.name;
+    if (!nodeId || !field) return;
+    const node = this.#definition().nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+
+    if (field === 'visibility-toggle') {
+      await this.#run(async () => {
+        if (input.checked) {
+          await this.#service.revealNode(this.#actorId, nodeId);
+          playMediaSound(node.media.soundReveal);
+        } else {
+          await this.#service.hideNode(this.#actorId, nodeId);
+        }
+      });
+    } else if (field === 'unlocked-toggle') {
+      await this.#run(async () => {
+        if (input.checked) {
+          await this.#service.unlockNode(this.#actorId, nodeId);
+          playMediaSound(node.media.soundUnlock);
+        } else {
+          await this.#service.lockNode(this.#actorId, nodeId);
+        }
+      });
+    } else if (field === 'add-exclusion') {
+      const partnerId = input.value;
+      if (partnerId) await this.#run(() => this.#service.setExclusive(this.#actorId, nodeId, partnerId, true));
+    } else if (field.startsWith('media.')) {
+      const key = field.slice('media.'.length);
+      const media = { ...node.media, [key]: input.value.trim() };
+      await this.#run(() => this.#service.updateNode(this.#actorId, nodeId, { media }));
+    } else {
+      const value = field === 'name' ? input.value.trim() || 'Aspecto sem nome' : input.value;
+      await this.#run(() => this.#service.updateNode(this.#actorId, nodeId, { [field]: value } as Partial<AspectNode>));
+    }
+  }
+
+  async #onConstellationFieldChange(target: HTMLElement): Promise<void> {
+    if (!(target instanceof HTMLInputElement)) return;
+    const definition = this.#definition();
+    const field = target.name;
+
+    if (field === 'background' || field === 'backgroundMusic') {
+      await this.#run(() =>
+        this.#service.updateConstellationSettings(this.#actorId, { [field]: target.value.trim() }),
+      );
+    } else if (field === 'category-label' || field === 'category-color') {
+      const key = field === 'category-label' ? 'label' : 'color';
+      const categories = definition.categories.map((category) =>
+        category.id === target.dataset.categoryId ? { ...category, [key]: target.value } : category,
+      );
+      await this.#run(() => this.#service.updateCategories(this.#actorId, categories));
+    } else if (field === 'rarity-label' || field === 'rarity-color' || field === 'rarity-order') {
+      const key = field === 'rarity-label' ? 'label' : field === 'rarity-color' ? 'color' : 'order';
+      const value = key === 'order' ? Number(target.value) || 0 : target.value;
+      const rarities = definition.rarities.map((rarity) =>
+        rarity.id === target.dataset.rarityId ? { ...rarity, [key]: value } : rarity,
+      );
+      await this.#run(() => this.#service.updateRarities(this.#actorId, rarities));
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Canvas
+  // -------------------------------------------------------------------
+
   #mountCanvas(): void {
     const container = this.element.querySelector<HTMLElement>('[data-canvas-container]');
-    if (!container || !this.#lastDefinition) {
-      return;
-    }
+    if (!container) return;
 
-    this.#canvas = new NebulaCanvas(container, {
-      onNodeSelected: (nodeId) => this.#handleNodeSelected(nodeId),
-      onNodeMoved: (nodeId, position) => this.#handleNodeMoved(nodeId, position),
-      onConnectionRequested: (fromId, toId) => this.#handleConnectionRequested(fromId, toId),
-      onCreateRequested: (position) => this.#handleCreateRequested(position),
-      onNodeRemoveRequested: (nodeId) => void this.#handleNodeRemoveRequested(nodeId),
-      onConnectionRemoveRequested: (connectionId) => void this.#handleConnectionRemoveRequested(connectionId),
-    });
+    // Clicar no canvas dá foco a ele: os atalhos (Del, Ctrl+Z…) passam a
+    // valer aqui, e `data-keyboard-focus` impede que o Foundry os use no
+    // canvas da cena ao mesmo tempo.
+    container.addEventListener('pointerdown', () => container.focus({ preventScroll: true }));
+
+    this.#canvas = new NebulaCanvas(
+      container,
+      {
+        onNodeSelected: (nodeId) => this.#handleNodeSelected(nodeId),
+        onConnectionSelected: (connectionId) => this.#handleConnectionSelected(connectionId),
+        onNodeMoved: (nodeId, position) => void this.#handleNodeMoved(nodeId, position),
+        onConnectionRequested: (fromId, toId) => void this.#handleConnectionRequested(fromId, toId),
+        onCreateRequested: (position) => void this.#handleCreateRequested(position),
+        onNodeRemoveRequested: (nodeId) => void this.#removeNode(nodeId),
+        onConnectionRemoveRequested: (connectionId) => void this.#removeConnection(connectionId),
+      },
+      { editable: true },
+    );
+    this.#canvas.setMode(this.#mode);
     this.#renderCanvas();
   }
 
   #renderCanvas(): void {
-    if (!this.#canvas || !this.#lastDefinition) {
-      return;
-    }
+    const definition = this.#lastDefinition;
+    if (!this.#canvas || !definition) return;
+    const statuses = computeNodeStatuses(definition.nodes, definition.connections, definition.exclusions);
 
-    // Mapeia AspectNode (Banco de Dados) pro formato RenderableNode esperado pelo canvas
-    const blockedIds = computeBlockedNodeIds(this.#lastDefinition.nodes, this.#lastDefinition.connections);
-    const prerequisiteLockedIds = computePrerequisiteLockedNodeIds(
-      this.#lastDefinition.nodes,
-      this.#lastDefinition.connections,
+    this.#canvas.render(
+      definition.nodes.map((node) => ({
+        id: node.id,
+        name: node.name,
+        position: node.position,
+        color: node.color,
+        icon: node.media.icon,
+        rarityId: node.rarityId,
+        revealed: node.visibility === 'revealed',
+        status: statuses.get(node.id) ?? 'available',
+      })),
+      definition.connections,
+      definition.rarities,
+      definition.exclusions,
     );
-    const renderableNodes = this.#lastDefinition.nodes.map((node) => ({
-      id: node.id,
-      position: node.position,
-      color: node.color,
-      icon: node.media.icon,
-      rarityId: node.rarityId,
-      revealed: node.visibility === 'revealed',
-      unlocked: node.unlocked,
-      blocked: blockedIds.has(node.id),
-      prerequisiteLocked: prerequisiteLockedIds.has(node.id),
-    }));
-
-    this.#canvas.render(renderableNodes, this.#lastDefinition.connections, this.#lastDefinition.rarities);
-    this.#canvas.setBackground(this.#lastDefinition.background);
+    this.#canvas.setBackground(definition.background);
   }
 
   #handleNodeSelected(nodeId: string | null): void {
     this.#selectedNodeId = nodeId;
+    this.#selectedConnectionId = null;
     if (nodeId) {
-      const node = this.#lastDefinition?.nodes.find((candidate) => candidate.id === nodeId);
-      playMediaSound(node?.media.soundSelect);
+      playMediaSound(this.#definition().nodes.find((node) => node.id === nodeId)?.media.soundSelect);
     }
     void this.render({ parts: ['panel'] });
   }
 
-  #handleNodeMoved(nodeId: string, position: Position): void {
-    // Persiste em segundo plano — o canvas já mostra a estrela na posição
-    // final, não é preciso esperar a escrita para continuar a interação.
-    void this.#service.moveNode(this.#actorId, nodeId, position);
+  #handleConnectionSelected(connectionId: string): void {
+    this.#selectedNodeId = null;
+    this.#selectedConnectionId = connectionId;
+    void this.render({ parts: ['panel'] });
+  }
+
+  #clearSelection(): void {
+    this.#selectedNodeId = null;
+    this.#selectedConnectionId = null;
+    this.#canvas?.setSelectedNode(null);
+    this.#canvas?.selectConnection(null);
+    void this.render({ parts: ['panel'] });
+  }
+
+  async #handleNodeMoved(nodeId: string, position: Position): Promise<void> {
+    await this.#run(() => this.#service.moveNode(this.#actorId, nodeId, position), { renderPanel: false });
   }
 
   async #handleConnectionRequested(fromNodeId: string, toNodeId: string): Promise<void> {
-    await this.#service.connectNodes(this.#actorId, fromNodeId, toNodeId);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    ui.notifications?.info('Caminho criado!');
-    this.#renderCanvas();
-    this.#connectModeActive = false;
-    this.#canvas?.setMode('select');
-    void this.render({ parts: ['toolbar'] });
+    await this.#run(() => this.#service.connectNodes(this.#actorId, fromNodeId, toNodeId));
   }
 
   async #handleCreateRequested(position: Position): Promise<void> {
-    const node = await this.#service.createNode(this.#actorId, position);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    ui.notifications?.info('Aspecto criado!');
-    this.#renderCanvas();
-    this.#createModeActive = false;
-    this.#canvas?.setMode('select');
-    this.#selectedNodeId = node.id;
-    void this.render({ parts: ['toolbar', 'panel'] });
+    await this.#run(async () => {
+      const node = await this.#service.createNode(this.#actorId, position);
+      this.#selectedNodeId = node.id;
+      this.#selectedConnectionId = null;
+      this.#canvas?.setSelectedNode(node.id);
+    });
+    if (this.#mode === 'create') this.#setMode('select');
+    // Já deixa o nome pronto para digitar.
+    const nameInput = this.element.querySelector<HTMLInputElement>('[data-panel-form] input[name="name"]');
+    nameInput?.focus();
+    nameInput?.select();
   }
 
-  async #onPanelFieldChange(event: Event): Promise<void> {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) {
-      return;
-    }
-
-    const form = target.closest('[data-panel-form]');
-    if (!(form instanceof HTMLElement)) {
-      return;
-    }
-    const nodeId = form.dataset.nodeId;
-    const field = (target as HTMLInputElement).name;
-    if (!nodeId || !field) {
-      return;
-    }
-
-    try {
-      if (field === 'visibility-toggle') {
-        const checked = (target as HTMLInputElement).checked;
-        const node = this.#lastDefinition?.nodes.find((candidate) => candidate.id === nodeId);
-        if (checked) {
-          await this.#service.revealNode(this.#actorId, nodeId);
-          playMediaSound(node?.media.soundReveal);
-          ui.notifications?.info('Aspecto revelado ao jogador!');
-        } else {
-          await this.#service.hideNode(this.#actorId, nodeId);
-          ui.notifications?.info('Aspecto ocultado do jogador!');
-        }
-      } else if (field === 'unlocked-toggle') {
-        const checked = (target as HTMLInputElement).checked;
-        const node = this.#lastDefinition?.nodes.find((candidate) => candidate.id === nodeId);
-        if (checked) {
-          await this.#service.unlockNode(this.#actorId, nodeId);
-          playMediaSound(node?.media.soundUnlock);
-          ui.notifications?.info('Aspecto desbloqueado! Um Ponto da Apoteose foi consumido.');
-        } else {
-          await this.#service.lockNode(this.#actorId, nodeId);
-          ui.notifications?.info('Desbloqueio revertido, ponto devolvido!');
-        }
-      } else if (field === 'exclude-target') {
-        // Marca/desmarca ESTE nó como "exclusor" de um Aspecto-alvo inteiro
-        // (Banco de Dados, seção 5) — precisa tocar TODOS os caminhos que
-        // chegam até o alvo de uma vez (não só um), senão o alvo nunca fica
-        // de fato bloqueado enquanto sobrar um caminho aberto até ele.
-        const checked = (target as HTMLInputElement).checked;
-        const targetNodeId = (target as HTMLInputElement).value;
-        const touchingConnections = (this.#lastDefinition?.connections ?? []).filter(
-          (connection) => connection.fromNodeId === targetNodeId || connection.toNodeId === targetNodeId,
-        );
-        for (const connection of touchingConnections) {
-          const current = new Set(connection.excludedByNodeIds ?? []);
-          if (checked) {
-            current.add(nodeId);
-          } else {
-            current.delete(nodeId);
-          }
-          await this.#service.setExclusion(this.#actorId, connection.id, Array.from(current));
-        }
-      } else {
-        const value = (target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
-        
-        // Campos aninhados como "media.icon" precisam de estrutura especial
-        if (field.includes('.')) {
-          const [parent, child] = field.split('.');
-          await this.#service.updateNode(this.#actorId, nodeId, {
-            [parent]: {
-              ...((this.#lastDefinition?.nodes.find(n => n.id === nodeId)?.[parent as keyof AspectNode] ?? {}) as Record<string, unknown>),
-              [child]: value,
-            },
-          } as Partial<AspectNode>);
-        } else {
-          await this.#service.updateNode(this.#actorId, nodeId, { [field]: value } as Partial<AspectNode>);
-        }
-      }
-    } catch (error) {
-      if (error instanceof ConstellationError) {
-        // Erro previsível (ex.: sem Pontos da Apoteose disponíveis) — avisa
-        // e deixa o re-render abaixo corrigir o estado visual do formulário.
-        ui.notifications?.warn(error.message);
-      } else {
-        throw error;
-      }
-    }
-
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    this.#renderCanvas();
-    void this.render({ parts: ['panel'] });
+  async #removeSelected(): Promise<void> {
+    if (this.#selectedNodeId) await this.#removeNode(this.#selectedNodeId);
+    else if (this.#selectedConnectionId) await this.#removeConnection(this.#selectedConnectionId);
   }
 
-  /**
-   * Campos que pertencem à constelação inteira (fundo/música/categorias/
-   * raridades), não a um Aspecto — vivem num form separado
-   * (`data-constellation-form`), sem `data-node-id`, então não passam por
-   * `#onPanelFieldChange`.
-   */
-  async #onConstellationFieldChange(event: Event): Promise<void> {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
+  async #removeNode(nodeId: string): Promise<void> {
+    const node = this.#definition().nodes.find((candidate) => candidate.id === nodeId);
+    if (!node) return;
+    if (nodeId === this.#definition().initialNodeId) {
+      ui.notifications?.warn('O Aspecto inicial não pode ser removido.');
       return;
     }
-    const field = target.name;
-
-    if (field === 'background' || field === 'backgroundMusic') {
-      try {
-        await this.#service.updateConstellationSettings(
-          this.#actorId,
-          { [field]: target.value } as Partial<Pick<ConstellationDefinition, 'background' | 'backgroundMusic'>>,
-        );
-      } catch (error) {
-        if (error instanceof ConstellationError) {
-          ui.notifications?.warn(error.message);
-        } else {
-          throw error;
-        }
-      }
-      this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-      this.#renderCanvas();
-      void this.render({ parts: ['panel'] });
-      return;
-    }
-
-    if (field === 'category-label' || field === 'category-color') {
-      const categoryId = target.dataset.categoryId;
-      if (!categoryId || !this.#lastDefinition) {
-        return;
-      }
-      const categories = this.#lastDefinition.categories.map((category) =>
-        category.id === categoryId
-          ? { ...category, [field === 'category-label' ? 'label' : 'color']: target.value }
-          : category,
-      );
-      await this.#service.updateCategories(this.#actorId, categories);
-      this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-      void this.render({ parts: ['panel'] });
-      return;
-    }
-
-    if (field === 'rarity-label' || field === 'rarity-color' || field === 'rarity-order') {
-      const rarityId = target.dataset.rarityId;
-      if (!rarityId || !this.#lastDefinition) {
-        return;
-      }
-      const key = field === 'rarity-label' ? 'label' : field === 'rarity-color' ? 'color' : 'order';
-      const value = key === 'order' ? Number(target.value) || 0 : target.value;
-      const rarities = this.#lastDefinition.rarities.map((rarity) =>
-        rarity.id === rarityId ? { ...rarity, [key]: value } : rarity,
-      );
-      await this.#service.updateRarities(this.#actorId, rarities);
-      this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-      this.#renderCanvas(); // cor da raridade afeta a cor da estrela no canvas
-      void this.render({ parts: ['panel'] });
-      return;
-    }
-  }
-
-  async #handleNodeRemoveRequested(nodeId: string): Promise<void> {
-    const node = this.#lastDefinition?.nodes.find((candidate) => candidate.id === nodeId);
     const confirmed = await foundry.applications.api.DialogV2.confirm({
       window: { title: 'Remover Aspecto' },
-      content: `<p>Remover "${node?.name ?? 'este Aspecto'}"? Esta ação não pode ser desfeita.</p>`,
+      content: `<p>Remover <strong>${escapeHTML(node.name)}</strong> e os caminhos ligados a ele?</p>
+        <p class="hint">Dá para desfazer com Ctrl+Z enquanto o Editor estiver aberto.</p>`,
     });
-    if (!confirmed) {
-      return;
-    }
-
-    await this.#service.removeNode(this.#actorId, nodeId);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    if (this.#selectedNodeId === nodeId) {
-      this.#selectedNodeId = null;
-    }
-    this.#renderCanvas();
-    this.#removeModeActive = false;
-    this.#canvas?.setMode('select');
-    void this.render({ parts: ['toolbar', 'panel'] });
+    if (!confirmed) return;
+    await this.#run(() => this.#service.removeNode(this.#actorId, nodeId));
+    if (this.#selectedNodeId === nodeId) this.#clearSelection();
   }
 
-  async #handleConnectionRemoveRequested(connectionId: string): Promise<void> {
-    const confirmed = await foundry.applications.api.DialogV2.confirm({
-      window: { title: 'Remover Conexão' },
-      content: '<p>Remover este caminho entre os dois Aspectos? Esta ação não pode ser desfeita.</p>',
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    await this.#service.disconnectNodes(this.#actorId, connectionId);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    this.#renderCanvas();
-    this.#removeModeActive = false;
-    this.#canvas?.setMode('select');
-    void this.render({ parts: ['toolbar'] });
+  async #removeConnection(connectionId: string): Promise<void> {
+    await this.#run(() => this.#service.disconnectNodes(this.#actorId, connectionId));
+    if (this.#selectedConnectionId === connectionId) this.#clearSelection();
   }
 
-  #toggleConnectMode(): void {
-    this.#connectModeActive = !this.#connectModeActive;
-    if (this.#connectModeActive) {
-      this.#createModeActive = false;
-      this.#removeModeActive = false;
-    }
-    this.#canvas?.setMode(this.#connectModeActive ? 'connect' : 'select');
-    void this.render({ parts: ['toolbar'] });
-  }
-
-  #toggleCreateMode(): void {
-    this.#createModeActive = !this.#createModeActive;
-    if (this.#createModeActive) {
-      this.#connectModeActive = false;
-      this.#removeModeActive = false;
-    }
-    this.#canvas?.setMode(this.#createModeActive ? 'create' : 'select');
-    void this.render({ parts: ['toolbar'] });
-  }
-
-  #toggleRemoveMode(): void {
-    this.#removeModeActive = !this.#removeModeActive;
-    if (this.#removeModeActive) {
-      this.#createModeActive = false;
-      this.#connectModeActive = false;
-    }
-    this.#canvas?.setMode(this.#removeModeActive ? 'remove' : 'select');
+  #setMode(mode: NebulaCanvasMode): void {
+    this.#mode = this.#mode === mode && mode !== 'select' ? 'select' : mode;
+    this.#canvas?.setMode(this.#mode);
     void this.render({ parts: ['toolbar'] });
   }
 
   #onKeyDown = (event: KeyboardEvent): void => {
-    // Escape cancela qualquer modo ativo
-    if (event.key === 'Escape') {
-      if (this.#connectModeActive || this.#createModeActive || this.#removeModeActive) {
-        event.preventDefault();
-        this.#connectModeActive = false;
-        this.#createModeActive = false;
-        this.#removeModeActive = false;
-        this.#canvas?.setMode('select');
-        void this.render({ parts: ['toolbar'] });
-      }
+    const target = event.target as HTMLElement;
+    if (target.closest('input, textarea, select, [contenteditable]')) return;
+    const key = event.key.toLowerCase();
+    const ctrl = event.ctrlKey || event.metaKey;
+    let handled = true;
+
+    if (key === 'escape') {
+      if (this.#mode !== 'select') this.#setMode('select');
+      else if (this.#selectedNodeId || this.#selectedConnectionId) this.#clearSelection();
+      else handled = false;
+    } else if (key === 'delete' || key === 'backspace') {
+      void this.#removeSelected();
+    } else if (ctrl && key === 'z') {
+      void (event.shiftKey ? this.#redo() : this.#undo());
+    } else if (ctrl && key === 'y') {
+      void this.#redo();
+    } else if (!ctrl && key === 'f') {
+      this.#canvas?.fitView();
+    } else if (!ctrl && key === 'n' && this.#canvas) {
+      void this.#handleCreateRequested(this.#canvas.viewCenter());
+    } else {
+      handled = false;
+    }
+
+    if (handled) {
+      event.preventDefault();
+      event.stopPropagation();
     }
   };
 
-  async #handleGrantPoint(): Promise<void> {
-    try {
-      await this.#service.grantPoint(this.#actorId);
-      this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-      ui.notifications?.info('Ponto da Apoteose concedido!');
-      void this.render({ parts: ['panel'] });
-    } catch (error) {
-      if (error instanceof ConstellationError) {
-        ui.notifications?.error(error.message);
-      } else {
-        throw error;
-      }
-    }
-  }
+  // -------------------------------------------------------------------
+  // Escrita, desfazer, recarga
+  // -------------------------------------------------------------------
 
-  async #handleRevokePoint(): Promise<void> {
-    try {
-      await this.#service.revokePoint(this.#actorId);
-      this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-      ui.notifications?.info('Ponto da Apoteose removido.');
-      void this.render({ parts: ['panel'] });
-    } catch (error) {
-      if (error instanceof ConstellationError) {
-        ui.notifications?.error(error.message);
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  async #handleAddCategory(): Promise<void> {
-    if (!this.#lastDefinition) {
-      return;
-    }
-    const categories = [...this.#lastDefinition.categories, { id: foundry.utils.randomID(), label: 'Nova categoria' }];
-    await this.#service.updateCategories(this.#actorId, categories);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    void this.render({ parts: ['panel'] });
-  }
-
-  async #handleRemoveCategory(categoryId: string | undefined): Promise<void> {
-    if (!categoryId || !this.#lastDefinition) {
-      return;
-    }
-    const categories = this.#lastDefinition.categories.filter((category) => category.id !== categoryId);
-    await this.#service.updateCategories(this.#actorId, categories);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    void this.render({ parts: ['panel'] });
-  }
-
-  async #handleAddRarity(): Promise<void> {
-    if (!this.#lastDefinition) {
-      return;
-    }
-    const rarities = [
-      ...this.#lastDefinition.rarities,
-      {
-        id: foundry.utils.randomID(),
-        label: 'Nova raridade',
-        color: '#c9b6e4',
-        order: this.#lastDefinition.rarities.length,
-      },
-    ];
-    await this.#service.updateRarities(this.#actorId, rarities);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    void this.render({ parts: ['panel'] });
-  }
-
-  async #handleRemoveRarity(rarityId: string | undefined): Promise<void> {
-    if (!rarityId || !this.#lastDefinition) {
-      return;
-    }
-    // Toda estrela referencia uma raridade (AspectNode.rarityId não é
-    // opcional) — sem pelo menos uma sobrando, o seletor de raridade do
-    // formulário do Aspecto ficaria vazio e criar/editar um nó quebraria.
-    if (this.#lastDefinition.rarities.length <= 1) {
-      ui.notifications?.warn('É preciso manter pelo menos uma raridade.');
-      return;
-    }
-    const rarities = this.#lastDefinition.rarities.filter((rarity) => rarity.id !== rarityId);
-    await this.#service.updateRarities(this.#actorId, rarities);
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    this.#renderCanvas(); // pode ter sido a raridade usada na cor de alguma estrela
-    void this.render({ parts: ['panel'] });
+  #definition(): ConstellationDefinition {
+    if (!this.#lastDefinition) throw new Error(`${MODULE_ID} | Editor sem Definição Mestra carregada.`);
+    return this.#lastDefinition;
   }
 
   /**
-   * Registra manualmente uma entrada na linha do tempo da jornada (GDD,
-   * seção 12) — não precisa estar ligada a um Aspecto desbloqueado
-   * especificamente, o Mestre pode anotar qualquer momento marcante.
+   * Executa uma escrita: guarda o retrato para Desfazer, trata erros
+   * previsíveis com um aviso e redesenha canvas, ferramentas e painel.
    */
-  async #handleLogHistoryEntry(): Promise<void> {
-    if (!this.#lastDefinition) {
-      return;
+  async #run(
+    task: () => Promise<unknown>,
+    { renderPanel = true, recordUndo = true }: { renderPanel?: boolean; recordUndo?: boolean } = {},
+  ): Promise<void> {
+    const snapshot = this.#lastDefinition ? foundry.utils.deepClone(this.#lastDefinition) : undefined;
+    try {
+      await task();
+      if (recordUndo && snapshot) {
+        this.#undoStack.push(snapshot);
+        if (this.#undoStack.length > UNDO_LIMIT) this.#undoStack.shift();
+        this.#redoStack = [];
+      }
+    } catch (error) {
+      if (error instanceof ConstellationError) ui.notifications?.warn(error.message);
+      else {
+        console.error(`${MODULE_ID} |`, error);
+        ui.notifications?.error('Não foi possível salvar a alteração. Veja o console (F12).');
+      }
     }
+    await this.#reload(renderPanel);
+  }
 
-    const data = await foundry.applications.api.DialogV2.input({
+  async #reload(renderPanel = true): Promise<void> {
+    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
+    const definition = this.#lastDefinition;
+    if (this.#selectedNodeId && !definition.nodes.some((node) => node.id === this.#selectedNodeId)) {
+      this.#selectedNodeId = null;
+    }
+    if (
+      this.#selectedConnectionId &&
+      !definition.connections.some((connection) => connection.id === this.#selectedConnectionId)
+    ) {
+      this.#selectedConnectionId = null;
+    }
+    this.#renderCanvas();
+    await this.render({ parts: renderPanel ? ['toolbar', 'panel'] : ['toolbar'] });
+  }
+
+  async #undo(): Promise<void> {
+    const snapshot = this.#undoStack.pop();
+    if (!snapshot || !this.#lastDefinition) return;
+    this.#redoStack.push(foundry.utils.deepClone(this.#lastDefinition));
+    await this.#run(() => this.#service.restoreDefinition(this.#actorId, snapshot), { recordUndo: false });
+  }
+
+  async #redo(): Promise<void> {
+    const snapshot = this.#redoStack.pop();
+    if (!snapshot || !this.#lastDefinition) return;
+    this.#undoStack.push(foundry.utils.deepClone(this.#lastDefinition));
+    await this.#run(() => this.#service.restoreDefinition(this.#actorId, snapshot), { recordUndo: false });
+  }
+
+  // -------------------------------------------------------------------
+  // Mídia e histórico
+  // -------------------------------------------------------------------
+
+  #pickMedia(button: HTMLElement): void {
+    const field = button.dataset.mediaField;
+    if (!field) return;
+    const isConstellation = button.dataset.scope === 'constellation';
+    const nodeId = this.#selectedNodeId;
+    const definition = this.#definition();
+    const node = nodeId ? definition.nodes.find((candidate) => candidate.id === nodeId) : undefined;
+    if (!isConstellation && !node) return;
+
+    const current = isConstellation
+      ? (definition[field as 'background' | 'backgroundMusic'] ?? '')
+      : (node!.media[field as keyof AspectNode['media']] ?? '');
+
+    // 'imagevideo' cobre imagem e vídeo; não existe tipo genérico "file".
+    const FilePickerClass = (foundry.applications.apps.FilePicker as unknown as { implementation: any })
+      .implementation;
+    const picker = new FilePickerClass({
+      type: button.dataset.mediaType === 'audio' ? 'audio' : 'imagevideo',
+      current,
+      callback: (path: string) => {
+        if (!path) return;
+        if (isConstellation) {
+          void this.#run(() => this.#service.updateConstellationSettings(this.#actorId, { [field]: path }));
+        } else if (nodeId && node) {
+          const media = { ...node.media, [field]: path };
+          void this.#run(() => this.#service.updateNode(this.#actorId, nodeId, { media }));
+        }
+      },
+    });
+    void picker.render(true);
+  }
+
+  /** Registra um momento na linha do tempo (GDD §12). */
+  async #logHistoryEntry(): Promise<void> {
+    const definition = this.#definition();
+    const options = [...definition.nodes]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((node) => `<option value="${node.id}">${escapeHTML(node.name)}</option>`)
+      .join('');
+
+    const data = (await foundry.applications.api.DialogV2.input({
       window: { title: 'Nova entrada na linha do tempo' },
       content: `
         <div class="form-group">
@@ -631,119 +657,28 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
           <input type="text" name="chapterTitle" placeholder="ex.: O Último Bastião" autofocus>
         </div>
         <div class="form-group">
-          <label>Aspecto relacionado (opcional)</label>
-          <select name="nodeId">
-            <option value="">(nenhum em especial)</option>
-            ${this.#lastDefinition.nodes.map((node) => `<option value="${node.id}">${node.name}</option>`).join('')}
-          </select>
+          <label>Data</label>
+          <input type="text" name="date" value="${escapeHTML(new Date().toLocaleDateString('pt-BR'))}">
         </div>
-      `,
+        <div class="form-group">
+          <label>Aspecto relacionado</label>
+          <select name="nodeId"><option value="">(nenhum)</option>${options}</select>
+        </div>`,
       ok: { label: 'Registrar' },
-    });
+    })) as { chapterTitle?: string; date?: string; nodeId?: string } | null;
+    if (!data) return;
 
-    if (!data) {
-      return; // Cancelado
-    }
-
-    const chapterTitle = String((data as { chapterTitle?: string }).chapterTitle ?? '').trim();
+    const chapterTitle = String(data.chapterTitle ?? '').trim();
     if (!chapterTitle) {
-      ui.notifications?.warn('Escreva um título pro capítulo antes de registrar.');
+      ui.notifications?.warn('Escreva um título para o capítulo antes de registrar.');
       return;
     }
-
-    await this.#service.addHistoryEntry(this.#actorId, {
-      date: new Date().toLocaleDateString('pt-BR'),
-      nodeId: String((data as { nodeId?: string }).nodeId ?? ''),
-      chapterTitle,
-    });
-    this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-    ui.notifications?.info('Entrada registrada na linha do tempo!');
-    void this.render({ parts: ['panel'] });
-  }
-
-  async #handleMediaPickerClick(button: HTMLButtonElement): Promise<void> {
-    // Só Mestre pode usar file picker
-    if (!game.user?.isGM) {
-      ui.notifications?.warn('Apenas o Mestre pode adicionar mídia.');
-      return;
-    }
-
-    const mediaField = button.dataset.mediaField;
-    const mediaType = button.dataset.mediaType;
-    if (!mediaField || !mediaType) {
-      return;
-    }
-
-    // Foundry não tem tipo "file" — só existem tipos concretos ('image',
-    // 'audio', etc.). Usar um tipo inválido aqui fazia o FilePicker se
-    // comportar de forma imprevisível (era o bug do 🔍 "não funcionando
-    // direito"). 'imagevideo' cobre imagem OU vídeo, útil pro ícone/imagem.
-    const filePickerType = mediaType === 'audio' ? 'audio' : 'imagevideo';
-
-    const isConstellationMedia = button.dataset.constellationMedia !== undefined;
-
-    if (isConstellationMedia) {
-      const picker = new (FilePicker as any)({
-        type: filePickerType,
-        callback: async (path: string) => {
-          if (!path || path.length === 0) {
-            return; // Usuário cancelou
-          }
-          try {
-            await this.#service.updateConstellationSettings(
-              this.#actorId,
-              { [mediaField]: path } as Partial<Pick<ConstellationDefinition, 'background' | 'backgroundMusic'>>,
-            );
-            this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-            this.#renderCanvas();
-            void this.render({ parts: ['panel'] });
-            ui.notifications?.info(`${mediaType === 'audio' ? 'Áudio' : 'Imagem'} adicionado(a)!`);
-          } catch (error) {
-            console.error(`${MODULE_ID} | Erro ao salvar mídia da constelação:`, error);
-            ui.notifications?.error('Erro ao salvar arquivo.');
-          }
-        },
-      });
-      picker.render(true);
-      return;
-    }
-
-    const form = button.closest('[data-panel-form]');
-    if (!(form instanceof HTMLElement)) {
-      return;
-    }
-    const nodeId = form.dataset.nodeId;
-    if (!nodeId) {
-      return;
-    }
-
-    // Cria um FilePicker com callback
-    const picker = new (FilePicker as any)({
-      type: filePickerType,
-      callback: async (path: string) => {
-        if (!path || path.length === 0) {
-          return; // Usuário cancelou
-        }
-
-        try {
-          // Salva no nó
-          await this.#service.updateNode(this.#actorId, nodeId, {
-            media: {
-              ...(this.#lastDefinition?.nodes.find(n => n.id === nodeId)?.media ?? {}),
-              [mediaField]: path,
-            },
-          } as Partial<AspectNode>);
-
-          this.#lastDefinition = await this.#service.getMasterDefinition(this.#actorId);
-          void this.render({ parts: ['panel'] });
-          ui.notifications?.info(`${mediaType === 'image' ? 'Imagem' : 'Áudio'} adicionado(a)!`);
-        } catch (error) {
-          console.error(`${MODULE_ID} | Erro ao salvar arquivo de mídia:`, error);
-          ui.notifications?.error('Erro ao salvar arquivo.');
-        }
-      },
-    });
-
-    picker.render(true);
+    await this.#run(() =>
+      this.#service.addHistoryEntry(this.#actorId, {
+        date: String(data.date ?? '').trim() || new Date().toLocaleDateString('pt-BR'),
+        nodeId: String(data.nodeId ?? ''),
+        chapterTitle,
+      }),
+    );
   }
 }

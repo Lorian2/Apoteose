@@ -1,11 +1,12 @@
 {
   "id": "constelacao-da-apoteose",
+  "type": "module",
   "title": "Constelação da Apoteose",
   "description": "Sistema de evolução narrativa para Foundry VTT: cada personagem constrói sua própria constelação de Aspectos, revelada e controlada inteiramente pelo Mestre.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "compatibility": {
     "minimum": 13,
-    "verified": 13
+    "verified": 14
   },
   "authors": [
     { "name": "Luan" }
@@ -15,6 +16,12 @@
   "languages": [
     { "lang": "pt-BR", "name": "Português (Brasil)", "path": "lang/pt-BR.json" }
   ],
+  "flags": {
+    "hotReload": {
+      "extensions": ["css", "hbs", "json"],
+      "paths": ["styles", "templates", "lang"]
+    }
+  },
   "url": "",
   "manifest": "",
   "download": ""

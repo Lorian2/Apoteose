@@ -146,10 +146,13 @@ PIXI.js (WebGL), que não lê CSS. Ficam em constantes separadas:
 **Arquivo: `src/rendering/star-node.ts`** (topo do arquivo):
 
 ```ts
-const DEFAULT_COLOR = '#c9b6e4';        // cor de fallback se o Aspecto não tiver cor/raridade
-const BLOCKED_COLOR = 0x4a4550;         // cinza — Aspecto travado permanentemente (exclusão mútua)
-const PREREQUISITE_OUTLINE = 0x8a8398;  // contorno acinzentado — travado por pré-requisito (temporário)
+const DEFAULT_COLOR = 0xc9b6e4;         // cor de fallback se o Aspecto não tiver cor/raridade
+const EXCLUDED_COLOR = 0x4a4550;        // cinza — caminho fechado (exclusão mútua)
+const PREREQUISITE_OUTLINE = 0x8a8398;  // contorno acinzentado — aguardando um Aspecto anterior
+const SELECTED_OUTLINE = 0xe8d9a0;      // dourado — seleção e hover
 ```
+
+O nome de cada estrela também é desenhado ali (`fontFamily`/`fontSize` no construtor de `StarNode`).
 
 > Nota: a cor "normal" de cada estrela vem da **Raridade** configurada por
 > você mesmo dentro do Editor (seção "Configurações da Constelação" →
@@ -160,8 +163,13 @@ const PREREQUISITE_OUTLINE = 0x8a8398;  // contorno acinzentado — travado por 
 **Arquivo: `src/rendering/path-line.ts`** (cor dos caminhos que ligam as estrelas):
 
 ```ts
-const LINE_COLOR_END = 0xf5f3ff;        // branco-perolado — caminho normal
-const LINE_COLOR_EXCLUSION = 0xe8d9a0;  // dourado — caminho com exclusão mútua configurada
+const STYLE = {
+  traversed: { color: GOLD, ... },   // as duas pontas desbloqueadas
+  open:      { color: PEARL, ... },  // origem desbloqueada
+  dormant:   { color: PEARL, ... },  // ainda sem uso
+  closed:    { color: 0x6f6780, ... }, // destino fechado
+  exclusion: { color: GOLD, ... },   // linha tracejada da exclusão mútua (só Mestre)
+};
 ```
 
 Essas cores usam formato hexadecimal `0xRRGGBB` (com `0x` na frente, não
@@ -222,11 +230,11 @@ querer ajustar num cenário diferente:
 
 | O quê | Arquivo | Constante |
 |---|---|---|
-| Velocidade do zoom (aproximar/afastar) | `src/rendering/camera-controller.ts` | `ZOOM_STEP_IN`, `ZOOM_STEP_OUT`, `ZOOM_DURATION_MS` |
+| Velocidade do zoom (aproximar/afastar) | `src/rendering/camera-controller.ts` | `ZOOM_FACTOR_IN`, `ZOOM_FACTOR_OUT`, `ZOOM_DURATION_MS` |
 | Limites de zoom | `src/rendering/camera-controller.ts` | `MIN_SCALE`, `MAX_SCALE` |
-| Tamanho da estrela / ícone / glow | `src/rendering/star-node.ts` | `NODE_RADIUS`, `ICON_SIZE`, `GLOW_RADIUS` |
-| Velocidade da pulsação da estrela selecionada | `src/rendering/star-node.ts` | `PULSE_CYCLE_MS`, `PULSE_MIN_OPACITY`, `PULSE_MAX_OPACITY` |
-| Espessura/opacidade dos caminhos | `src/rendering/path-line.ts` | `LINE_WIDTH`, `LINE_OPACITY_MAX` |
+| Tamanho da estrela / ícone / halo | `src/rendering/star-node.ts` | `NODE_RADIUS`, `ICON_SIZE`, `GLOW_LAYERS` |
+| Respiração e animações da estrela | `src/rendering/star-node.ts` | `PULSE_CYCLE_MS`, `REVEAL_DURATION_MS`, `UNLOCK_DURATION_MS` |
+| Espessura/opacidade dos caminhos | `src/rendering/path-line.ts` | tabela `STYLE`, `FADE_IN_MS` |
 | Tamanho do ladrilho de fundo infinito | `src/rendering/nebula-canvas.ts` | `BACKGROUND_TILE_EXTENT` |
 | Volume padrão (efeitos / música) | `src/services/sound-settings.ts` | `default: 80` / `default: 50` (dentro de `game.settings.register`) |
 

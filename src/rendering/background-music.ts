@@ -43,7 +43,7 @@ export class BackgroundMusicPlayer {
       // Promise dele (varia entre versões do Foundry) — nos dois casos o
       // valor final aqui já é o Sound pronto pra guardar e parar depois.
       this.#sound = await foundry.audio.AudioHelper.play(
-        { src, volume: getMusicVolume(), loop: true, autoplay: true },
+        { src, volume: getMusicVolume(), loop: true },
         false,
       );
       BackgroundMusicPlayer.#active.add(this);

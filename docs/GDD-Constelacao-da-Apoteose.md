@@ -1,9 +1,16 @@
 # Game Design Document — Constelação da Apoteose
 ### Documento vivo do projeto · Módulo para Foundry VTT
 
-**Versão do documento:** 1.2
-**Data:** 12/07/2026 (revisado em 13/07/2026, revisado em 25/07/2026)
-**Status:** Aprovado — reflete o estado real do módulo após a etapa de implementação e refinamento
+**Versão do documento:** 1.3
+**Data:** 12/07/2026 (revisado em 13/07/2026, 25/07/2026 e 14/11/2026)
+**Status:** Aprovado — reflete o estado real do módulo (0.2.0)
+
+> **Changelog v1.3 (14/11/2026, módulo 0.2.0):**
+> - **Só o Mestre desbloqueia** (seções 6 e 7): o pedido de desbloqueio pelo Observatório saiu. O jogador vê o que está ao seu alcance e combina com o Mestre.
+> - **Exclusão mútua simétrica entre Aspectos** (seção 9), com propagação para o ramo inteiro.
+> - **Versão-alvo:** compatível com V13, verificado na V14 (14.364).
+> - **Editor:** nomes das estrelas no canvas, zoom em direção ao cursor, enquadrar tudo, desfazer/refazer, duplo clique para criar, Shift+arrastar para conectar, seleção de caminho (inverter sentido/remover), atalhos de teclado.
+> - **Observatório:** rótulos legíveis de categoria/raridade/tipo, descrição formatada (com links @UUID), situação de cada Aspecto explicada, animações de revelar e desbloquear.
 
 > **Changelog v1.2 (25/07/2026):** documento atualizado para refletir tudo que foi implementado, corrigido e adicionado durante a etapa 9 (implementação) — que foi bem além do MVP original definido na seção 15 da v1.1. Principais mudanças de design registradas aqui:
 > - **Versão-alvo do Foundry corrigida para V13** (seção 2) — a v1.1 registrava V14 por engano; o comportamento real observado no Foundry (e várias correções de bugs específicas de API) confirmam V13.
@@ -126,7 +133,7 @@ O ciclo nunca é automático. Ele sempre segue esta sequência:
 1. O Mestre define, fora do módulo, uma **Missão** ou marco narrativo como requisito.
 2. Quando o requisito é cumprido em jogo, o **Mestre marca manualmente** a missão como concluída.
 3. O Mestre **concede manualmente** um Ponto da Apoteose ao personagem (nunca por XP, nível ou gatilho automático) — e pode, com a mesma facilidade, **remover** um ponto concedido por engano.
-4. O jogador decide, fora do módulo, em qual nó já disponível deseja investir o ponto — mas quem **executa o desbloqueio** dentro do Editor é sempre o Mestre (seção 7: jogadores nunca editam a constelação diretamente). Na prática, o jogador também pode *solicitar* o desbloqueio pelo próprio Observatório — a solicitação é retransmitida e executada do lado do Mestre, então a regra "só o Mestre edita de verdade" continua valendo, só que sem exigir que o Mestre fique de campana clicando em cada pedido.
+4. O jogador decide, fora do módulo, em qual nó já disponível deseja investir o ponto — mas quem **executa o desbloqueio** dentro do Editor é sempre o Mestre (seção 7: jogadores nunca editam a constelação). O Observatório ajuda o jogador a escolher (lista "Ao seu alcance" com os Aspectos disponíveis), mas não tem botão de desbloqueio. *(v1.3: o pedido de desbloqueio pelo Observatório, da v1.2, foi removido.)*
 5. Ao desbloquear certos nós, o Mestre pode optar por **revelar novos caminhos** anteriormente ocultos — em tempo real, sem necessidade de recarregar o Foundry.
 6. Efeitos mecânicos do Aspecto (se houver) são aplicados **manualmente** pelo jogador ou Mestre na ficha do sistema em uso.
 
@@ -145,7 +152,6 @@ Quando um Aspecto tem **mais de uma origem** (dois ramos diferentes convergindo 
 - Ver nós desbloqueados e os próximos caminhos disponíveis.
 - Abrir o painel lateral de um Aspecto para ler suas informações.
 - Abrir o Modo Observatório da própria constelação.
-- Solicitar o desbloqueio de um Aspecto disponível (a execução de fato continua sendo do Mestre — ver seção 6).
 
 **Jogadores nunca podem:**
 - Editar qualquer parte da constelação.
@@ -197,7 +203,7 @@ Permitir que o Mestre construa uma constelação inteira — nós, conexões, re
 
 - **Criar uma estrela:** Mestre clica em "criar nó" no canvas → um nó em estado "rascunho" aparece → painel de propriedades abre automaticamente para preenchimento.
 - **Conectar estrelas:** Mestre seleciona nó de origem → arrasta uma linha até o nó de destino → conexão é criada como caminho disponível.
-- **Definir exclusão mútua:** Mestre abre o painel do Aspecto que, se escolhido, deve fechar outros ramos → marca, numa lista de "Aspectos-alvo" que aparece nesse mesmo painel, quais outros Aspectos ficam permanentemente inacessíveis quando este for desbloqueado. Um Aspecto-alvo só fica de fato travado quando **todos** os caminhos que levam até ele estiverem fechados — se ele ainda tiver outra rota aberta, continua acessível por ali. O sistema reflete essa relação visualmente (a estrela travada aparece acinzentada) tanto no Editor quanto, quando aplicável, na visão do jogador — um Aspecto que o jogador nunca chegou a ver revelado continua completamente invisível pra ele, exclusão mútua ou não.
+- **Definir exclusão mútua (v1.3):** no painel de um Aspecto, o Mestre escolhe "Excluir mutuamente com…" e indica o rival. A relação vale nos dois sentidos: desbloquear qualquer um dos dois fecha o outro para sempre. Basta marcar as duas escolhas rivais: tudo que só é alcançável a partir do Aspecto fechado também se fecha (ramo morto); um Aspecto que ainda tenha outra rota aberta continua acessível por ela. No Editor, a relação aparece como uma linha tracejada dourada entre os dois (só o Mestre vê); a estrela fechada fica cinza no Editor e, se estiver revelada, também na visão do jogador.
 - **Anexar mídia:** Mestre abre o painel de mídia do nó → escolhe arquivo de ícone (aparece sobreposto à própria estrela no canvas), imagem (aparece no painel de detalhes de quem clicar no Aspecto — inclusive do lado do jogador), e sons de revelação/desbloqueio/seleção, tudo com busca de arquivo integrada.
 
 ### Fora do escopo do Editor no momento atual

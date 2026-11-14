@@ -1,27 +1,54 @@
-<div>
+<div class="constelacao-toolbar-inner">
   <p class="constelacao-section-title">Ferramentas</p>
-  <button type="button" data-action="grantPoint" class="constelacao-tool-button" style="background-color: rgba(232, 217, 160, 0.2); border-color: rgba(232, 217, 160, 0.5);">
-    ✨ Conceder Ponto
-  </button>
-  <button type="button" data-action="revokePoint" class="constelacao-tool-button" style="background-color: rgba(232, 217, 160, 0.08); border-color: rgba(232, 217, 160, 0.3);">
-    ➖ Remover Ponto
-  </button>
-  <button type="button" data-action="toggleCreateMode" class="constelacao-tool-button{{#if createModeActive}} active{{/if}}">
-    {{#if createModeActive}}Cancelar criação{{else}}+ Criar{{/if}}
-  </button>
-  <button type="button" data-action="toggleConnectMode" class="constelacao-tool-button{{#if connectModeActive}} active{{/if}}">
-    {{#if connectModeActive}}Cancelar conexão{{else}}✥ Conectar{{/if}}
-  </button>
-  <button type="button" data-action="toggleRemoveMode" class="constelacao-tool-button{{#if removeModeActive}} active{{/if}}">
-    {{#if removeModeActive}}Cancelar remoção{{else}}🗑 Remover{{/if}}
-  </button>
-  <p class="constelacao-placeholder-note">
-    <em>
-    {{#if createModeActive}}Clique numa área vazia do canvas para criar um Aspecto.
-    {{else if connectModeActive}}Clique em duas estrelas para ligá-las.
-    {{else if removeModeActive}}Clique numa estrela ou linha para remover (com confirmação).
-    {{else}}Arraste uma estrela para reposicionar. Clique para selecionar. (Esc cancela modo){{/if}}
-    </em>
-  </p>
-</div>
 
+  <div class="constelacao-tool-group">
+    {{#each modes}}
+    <button type="button" class="constelacao-tool-button{{#if this.active}} active{{/if}}"
+            data-action="setMode" data-mode="{{this.id}}" data-tooltip="{{this.hint}}">
+      <i class="{{this.icon}}"></i> {{this.label}}
+    </button>
+    {{/each}}
+  </div>
+
+  <div class="constelacao-tool-row">
+    <button type="button" data-action="undo" {{#unless canUndo}}disabled{{/unless}} data-tooltip="Desfazer (Ctrl+Z)">
+      <i class="fa-solid fa-rotate-left"></i>
+    </button>
+    <button type="button" data-action="redo" {{#unless canRedo}}disabled{{/unless}} data-tooltip="Refazer (Ctrl+Shift+Z)">
+      <i class="fa-solid fa-rotate-right"></i>
+    </button>
+    <button type="button" data-action="fitView" data-tooltip="Enquadrar tudo (F)">
+      <i class="fa-solid fa-expand"></i>
+    </button>
+    <button type="button" data-action="openPlayerView" data-tooltip="Ver como o jogador vê">
+      <i class="fa-solid fa-eye"></i>
+    </button>
+  </div>
+
+  <div class="constelacao-points">
+    <span class="constelacao-points-label">Pontos da Apoteose</span>
+    <div class="constelacao-points-row">
+      <button type="button" data-action="revokePoint" {{#unless unspentPoints}}disabled{{/unless}} data-tooltip="Remover um Ponto">
+        <i class="fa-solid fa-minus"></i>
+      </button>
+      <strong class="constelacao-points-value">{{unspentPoints}}</strong>
+      <button type="button" data-action="grantPoint" data-tooltip="Conceder um Ponto">
+        <i class="fa-solid fa-plus"></i>
+      </button>
+    </div>
+  </div>
+
+  <p class="constelacao-placeholder-note">{{modeHint}}</p>
+
+  <details class="constelacao-shortcuts" data-sync="shortcuts">
+    <summary>Atalhos</summary>
+    <ul>
+      <li><kbd>Duplo clique</kbd> no vazio: novo Aspecto</li>
+      <li><kbd>Shift</kbd> + arrastar de uma estrela a outra: caminho</li>
+      <li><kbd>Del</kbd>: remove a seleção</li>
+      <li><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd>: desfazer / refazer</li>
+      <li><kbd>F</kbd>: enquadrar · <kbd>N</kbd>: novo no centro</li>
+      <li><kbd>Esc</kbd>: cancela o modo / a seleção</li>
+    </ul>
+  </details>
+</div>

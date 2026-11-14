@@ -75,12 +75,15 @@ moveNode(actorId: string, nodeId: string, position: Position): Promise<void>
 ## 5. Métodos de escrita — conexões
 
 ```typescript
-connectNodes(actorId: string, fromNodeId: string, toNodeId: string): Promise<PathConnection>
+connectNodes(actorId: string, fromNodeId: string, toNodeId: string): Promise<PathConnection>   // INVALID_CONNECTION se for laço ou duplicado
 disconnectNodes(actorId: string, connectionId: string): Promise<void>
-setExclusion(actorId: string, connectionId: string, excludedByNodeIds: string[]): Promise<void>
+reverseConnection(actorId: string, connectionId: string): Promise<void>                       // troca origem e destino
+setExclusive(actorId: string, nodeA: string, nodeB: string, exclusive: boolean): Promise<void>
 ```
 
-`setExclusion` opera por **conexão individual** — a interface do Editor (painel "Exclusão mútua" de um Aspecto) chama este método uma vez por caminho afetado quando o Mestre marca um Aspecto-alvo inteiro, já que um alvo com mais de uma origem precisa ter **todos** os caminhos até ele marcados pra ficar de fato bloqueado (Banco de Dados, seção 5).
+`setExclusive` (v1.3, substitui `setExclusion`) liga ou desliga a exclusão mútua entre **dois Aspectos**, nos dois sentidos (Banco de Dados, seção 5). `removeNode` leva junto as exclusões do nó removido.
+
+Todas as escritas passam por uma fila por Ator: duas chamadas seguidas (ex.: arrastar e editar um campo) nunca leem o mesmo documento e se sobrescrevem.
 
 ---
 
@@ -100,7 +103,13 @@ lockNode(actorId: string, nodeId: string): Promise<void>      // desfazer desblo
 
 `revokePoint` (novo na v1.1) é a contrapartida direta de `grantPoint` — existe pra o Mestre corrigir um ponto concedido por engano, sem precisar zerar e reconceder manualmente.
 
-`unlockNode` hoje verifica, nesta ordem: permissão de Mestre → existência do nó → pontos disponíveis (`NO_POINTS_AVAILABLE`) → exclusão mútua (`NODE_EXCLUDED`, Banco de Dados seção 5) → pré-requisito de origem (`PREREQUISITE_NOT_MET`, Banco de Dados seção 5.1). Esses dois últimos não existiam na v1.0 deste documento.
+`unlockNode` verifica, nesta ordem: permissão de Mestre → existência do nó → já desbloqueado (não faz nada) → exclusão mútua (`NODE_EXCLUDED`) → pré-requisito de origem (`PREREQUISITE_NOT_MET`) → pontos disponíveis (`NO_POINTS_AVAILABLE`). O Aspecto inicial não pode ser removido nem bloqueado (`INITIAL_NODE`).
+
+```typescript
+removeHistoryEntry(actorId: string, index: number): Promise<void>
+restoreDefinition(actorId: string, snapshot: ConstellationDefinition): Promise<void>  // Desfazer/Refazer do Editor
+migrateOutdatedPlayerStates(): Promise<number>                                         // chamado no `ready` pelo Mestre ativo
+```
 
 ---
 
@@ -124,10 +133,12 @@ Um subconjunto curado do `ConstellationService` é exposto em `game.modules.get(
 ```typescript
 game.modules.get('constelacao-da-apoteose').api = {
   grantPoint,
-  revokePoint,   // novo na v1.1
+  revokePoint,      // novo na v1.1
   unlockNode,
   revealNode,
   getPlayerState,
+  open,             // v1.3: (actorId) → Editor para o Mestre, Observatório para o dono do Ator
+  openObservatory,  // v1.3: (actorId) → visão do jogador (o Mestre também pode usar)
 };
 ```
 
@@ -137,7 +148,7 @@ Exemplo de uso numa macro do Mestre:
 await game.modules.get('constelacao-da-apoteose').api.grantPoint(actor.id);
 ```
 
-Apenas métodos considerados seguros para automação externa entram nessa lista — `removeNode` e `setExclusion`, por exemplo, ficam de fora da API pública por serem operações estruturais mais arriscadas para um script rodar sem supervisão direta no Editor.
+Apenas métodos considerados seguros para automação externa entram nessa lista — `removeNode` e `setExclusive`, por exemplo, ficam de fora da API pública por serem operações estruturais mais arriscadas para um script rodar sem supervisão direta no Editor.
 
 ---
 
@@ -152,7 +163,7 @@ Para que outros módulos ou macros reajam a eventos sem precisar chamar a API di
 | `constelacaoApoteose.pointGranted` | Após `grantPoint` | `(actorId, amount)` |
 | `constelacaoApoteose.pointRevoked` | Após `revokePoint` | `(actorId, amount)` — novo na v1.1 |
 
-Esses hooks são locais (`Hooks.callAll`, não via socket) — disparam só no client de quem executou a ação. Como a maioria das ações mutáveis roda sempre do lado do Mestre (inclusive pedidos originados do jogador, retransmitidos e executados no client do Mestre), um macro/módulo que escuta esses hooks pensado pra reagir "sempre que algo mudar em qualquer client" também deveria escutar `updateActor`/`updateJournalEntry` do próprio Foundry, não só estes hooks do módulo.
+Esses hooks são locais (`Hooks.callAll`, não via socket) — disparam só no client de quem executou a ação. Como toda ação mutável roda do lado do Mestre, um macro/módulo que escuta esses hooks pensado pra reagir "sempre que algo mudar em qualquer client" também deveria escutar `updateActor`/`updateJournalEntry` do próprio Foundry, não só estes hooks do módulo.
 
 ---
 
@@ -162,8 +173,8 @@ Esses hooks são locais (`Hooks.callAll`, não via socket) — disparam só no c
 |---|---|---|
 | `getPlayerState` | Não | `ACTOR_NOT_FOUND`, `NOT_INITIALIZED` |
 | `getMasterDefinition` | Sim | `NOT_GM`, `ACTOR_NOT_FOUND` |
-| `createNode` / `updateNode` / `removeNode` / `moveNode` | Sim | `NOT_GM`, `NODE_NOT_FOUND` |
-| `connectNodes` / `disconnectNodes` / `setExclusion` | Sim | `NOT_GM`, `NODE_NOT_FOUND`, `CONNECTION_NOT_FOUND` |
+| `createNode` / `updateNode` / `removeNode` / `moveNode` | Sim | `NOT_GM`, `NODE_NOT_FOUND`, `INITIAL_NODE` |
+| `connectNodes` / `disconnectNodes` / `reverseConnection` / `setExclusive` | Sim | `NOT_GM`, `NODE_NOT_FOUND`, `CONNECTION_NOT_FOUND`, `INVALID_CONNECTION` |
 | `revealNode` / `hideNode` | Sim | `NOT_GM`, `NODE_NOT_FOUND` |
 | `grantPoint` / `revokePoint` | Sim | `NOT_GM` |
 | `unlockNode` | Sim | `NOT_GM`, `NODE_NOT_FOUND`, `NO_POINTS_AVAILABLE`, `NODE_EXCLUDED`, `PREREQUISITE_NOT_MET` |

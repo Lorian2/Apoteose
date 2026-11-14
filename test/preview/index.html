@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>Constelação da Apoteose — pré-visualização do canvas</title>
+  <link rel="stylesheet" href="/styles/constelacao.css">
+  <style>
+    body { margin: 0; background: #0b0a1f; color: #f5f3ff; font-family: system-ui, sans-serif; }
+    .constelacao-apoteose { display: grid; grid-template-columns: 1fr 260px; gap: 8px; height: 100vh; padding: 8px; box-sizing: border-box; }
+    #side { display: flex; flex-direction: column; gap: 6px; }
+    #log { flex: 1; overflow: auto; font-size: 12px; white-space: pre-wrap; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="constelacao-apoteose">
+    <section class="constelacao-canvas-placeholder"><div id="canvas" class="constelacao-canvas-container"></div></section>
+    <aside id="side" class="constelacao-panel">
+      <button data-mode="select">Selecionar</button>
+      <button data-mode="create">Criar</button>
+      <button data-mode="connect">Conectar</button>
+      <button data-mode="remove">Remover</button>
+      <button id="unlock">Alternar desbloqueio (selecionado)</button>
+      <button id="reveal">Alternar revelado (selecionado)</button>
+      <button id="fit">Enquadrar</button>
+      <pre id="log"></pre>
+    </aside>
+  </div>
+  <!-- PIXI 7.4.3, a mesma versão do Foundry 14.364 -->
+  <script src="__PIXI_URL__"></script>
+  <script type="module" src="/test/.out/preview.js"></script>
+</body>
+</html>

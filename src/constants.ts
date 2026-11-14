@@ -21,13 +21,23 @@ export const ASPECT_TYPE_LABELS: Record<string, string> = {
  *   sem garantia de `connections[].excludedByNodeIds` sempre ser array.
  * - v2: adiciona `backgroundMusic` (opcional, sem transformação necessária)
  *   e normaliza `excludedByNodeIds` pra sempre existir como array (nunca
- *   `undefined`) — ver migração 1→2 em constellation-repository.ts.
+ *   `undefined`) - ver migração 1→2 em constellation-repository.ts.
+ * - v3: exclusão mútua sai das conexões e vira `exclusions` (pares de
+ *   Aspectos, simétricos); o Estado do Jogador passa a trazer `status`.
  *
  * Ao adicionar uma mudança de schema nova: incremente este número E
  * acrescente a migração correspondente em `MIGRATIONS`
  * (constellation-repository.ts) — nunca só um dos dois.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 3;
+
+/** Rótulos da situação de um Aspecto (ver `NodeStatus`). */
+export const NODE_STATUS_LABELS: Record<string, string> = {
+  unlocked: 'Desbloqueado',
+  available: 'Disponível',
+  prerequisite: 'Aguardando um Aspecto anterior',
+  excluded: 'Caminho fechado',
+};
 
 /** Raridades padrão semeadas em toda constelação nova (Banco de Dados, seção 10).
  * Paleta etérea (GDD, seção 8): raridade se expressa por luminosidade e

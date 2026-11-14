@@ -1,87 +1,116 @@
-import type { Position } from '../types/constellation';
+import type { NodeStatus, Position } from '../types/constellation';
 
-const DEFAULT_COLOR = '#c9b6e4'; // lavanda (cor padrão etérea)
-const BLOCKED_COLOR = 0x4a4550; // cinza neutro — Aspecto permanentemente inalcançável (exclusão mútua)
-const PREREQUISITE_OUTLINE = 0x8a8398; // contorno acinzentado — pré-requisito pendente (trava temporária, não permanente)
-const NODE_RADIUS = 12;
-const GLOW_RADIUS = NODE_RADIUS + 8;
-const ICON_SIZE = NODE_RADIUS * 1.5; // levemente menor que o núcleo, pra sobrar uma borda colorida visível
+const DEFAULT_COLOR = 0xc9b6e4; // lavanda
+const EXCLUDED_COLOR = 0x4a4550; // cinza neutro — caminho fechado para sempre
+const PREREQUISITE_OUTLINE = 0x8a8398;
+const SELECTED_OUTLINE = 0xe8d9a0; // dourado-pálido
+const PEARL = 0xf5f3ff;
 
-// Pulsação: 2 segundos de ciclo completo (respirando, não frenético)
-const PULSE_CYCLE_MS = 2000;
-const PULSE_MIN_OPACITY = 0.3;
-const PULSE_MAX_OPACITY = 0.7;
+export const NODE_RADIUS = 12;
+const ICON_SIZE = NODE_RADIUS * 1.5;
+const GLOW_LAYERS = [
+  { radius: NODE_RADIUS + 18, alpha: 0.06 },
+  { radius: NODE_RADIUS + 11, alpha: 0.12 },
+  { radius: NODE_RADIUS + 5, alpha: 0.22 },
+];
+const LABEL_MAX_CHARS = 26;
 
-function hexStringToNumber(hex: string): number {
-  return Number(hex.replace('#', '0x'));
+const PULSE_CYCLE_MS = 3200; // respiração lenta
+const REVEAL_DURATION_MS = 1100;
+const UNLOCK_DURATION_MS = 1600;
+
+function parseColor(value: string | undefined): number {
+  if (!value) return DEFAULT_COLOR;
+  const parsed = Number.parseInt(value.replace('#', ''), 16);
+  return Number.isFinite(parsed) ? parsed : DEFAULT_COLOR;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+export interface StarNodeData {
+  id: string;
+  name: string;
+  position: Position;
+  color?: string;
+  icon?: string;
+  /** Falso só na visão do Mestre, para nós ainda ocultos ao jogador. */
+  revealed: boolean;
+  status: NodeStatus;
 }
 
 /**
- * Representação visual de um Aspecto no canvas (Arquitetura de Software,
- * seção 3 · GDD, seção 8 — brilho e pulsação etérea). Seleção e arraste
- * são tratados via eventos do PIXI; quem decide o que fazer com esses
- * eventos (persistir, atualizar o painel) é sempre uma camada acima,
- * passada por callback.
+ * Um Aspecto no canvas. Todas as animações rodam por `update(deltaMs)`,
+ * chamado pelo ticker do canvas — nada de requestAnimationFrame próprio
+ * por estrela, e `destroy()` libera tudo que foi criado no PIXI.
  *
  * Estados visuais:
- * - Oculto: sem brilho, cor acinzentada
- * - Revelado, não desbloqueado: brilho suave, sem pulsação
- * - Desbloqueado: brilho + pulsação lenta (respirando)
- * - Selecionado: brilho intenso, contorno dourado
- * - Bloqueado (exclusão mútua fechou todos os caminhos): cinza neutro,
- *   sem brilho — visualmente "morto", independente da cor de raridade
- * - Travado por pré-requisito (nenhuma origem conectada ainda comprada):
- *   cor de raridade normal, opacidade reduzida, contorno acinzentado —
- *   diferente do bloqueio, é temporário: libera assim que uma origem for
- *   desbloqueada
+ * - desbloqueado: halo que respira, contorno perolado
+ * - disponível: cor da raridade, contorno suave
+ * - aguardando anterior: opacidade reduzida, contorno acinzentado
+ * - caminho fechado: cinza, sem halo
+ * - oculto (só Mestre): fantasmagórico
+ * - selecionado/realçado: contorno dourado e núcleo maior
  */
 export class StarNode {
   readonly graphics: PIXI.Container;
   readonly nodeId: string;
-  #glowGraphics: PIXI.Graphics;
-  #coreGraphics: PIXI.Graphics;
-  #iconSprite: PIXI.Sprite | undefined;
+  #data: StarNodeData;
+  #color: number;
+  #glow = new PIXI.Graphics();
+  #core = new PIXI.Graphics();
+  #ring = new PIXI.Graphics();
+  #icon: PIXI.Sprite | undefined;
+  #label: PIXI.Text;
   #position: Position;
-  #color: string | undefined;
-  #revealed = true;
-  #unlocked = false;
   #selected = false;
-  #blocked = false;
-  #prerequisiteLocked = false;
-  #isPulsing = false;
-  #animationFrameId: number | null = null;
-  #pulseStartTime = 0;
+  #hovered = false;
+  #elapsedMs = Math.random() * PULSE_CYCLE_MS; // estrelas não respiram em uníssono
+  #revealProgress = 1;
+  #unlockProgress = 1;
 
-  constructor(nodeId: string, position: Position, color: string | undefined, icon?: string) {
-    this.nodeId = nodeId;
-    this.#position = position;
-    this.#color = color;
+  constructor(data: StarNodeData) {
+    this.nodeId = data.id;
+    this.#data = data;
+    this.#color = data.status === 'excluded' ? EXCLUDED_COLOR : parseColor(data.color);
+    this.#position = { ...data.position };
 
-    // Container que agrupa glow + núcleo
     this.graphics = new PIXI.Container();
     this.graphics.eventMode = 'static';
     this.graphics.cursor = 'pointer';
-    this.graphics.x = position.x;
-    this.graphics.y = position.y;
+    this.graphics.hitArea = new PIXI.Circle(0, 0, NODE_RADIUS + 6);
+    this.graphics.position.set(data.position.x, data.position.y);
 
-    // Glow (sempre por baixo do núcleo, pra simular brilho)
-    this.#glowGraphics = new PIXI.Graphics();
-    this.graphics.addChild(this.#glowGraphics);
+    this.#ring.eventMode = 'none';
+    this.graphics.addChild(this.#ring, this.#glow, this.#core);
 
-    // Núcleo (a estrela em si)
-    this.#coreGraphics = new PIXI.Graphics();
-    this.graphics.addChild(this.#coreGraphics);
-
-    // Ícone (opcional — Banco de Dados, seção 2, MediaRefs.icon), sempre por
-    // cima do núcleo, deixando uma borda colorida da raridade visível ao redor.
-    if (icon) {
-      this.#iconSprite = PIXI.Sprite.from(icon);
-      this.#iconSprite.anchor.set(0.5);
-      this.#iconSprite.width = ICON_SIZE;
-      this.#iconSprite.height = ICON_SIZE;
-      this.#iconSprite.eventMode = 'none'; // não rouba eventos de clique/drag do núcleo
-      this.graphics.addChild(this.#iconSprite);
+    if (data.icon) {
+      this.#icon = PIXI.Sprite.from(data.icon);
+      this.#icon.anchor.set(0.5);
+      this.#icon.width = ICON_SIZE;
+      this.#icon.height = ICON_SIZE;
+      this.#icon.eventMode = 'none';
+      this.graphics.addChild(this.#icon);
     }
+
+    const name = data.name.length > LABEL_MAX_CHARS ? `${data.name.slice(0, LABEL_MAX_CHARS - 1)}…` : data.name;
+    this.#label = new PIXI.Text(name, {
+      fontFamily: ['Cinzel', 'Times New Roman', 'serif'],
+      fontSize: 12,
+      fill: PEARL,
+      align: 'center',
+      dropShadow: true,
+      dropShadowColor: 0x0b0a1f,
+      dropShadowBlur: 4,
+      dropShadowDistance: 0,
+      dropShadowAlpha: 0.9,
+    });
+    this.#label.resolution = 2;
+    this.#label.anchor.set(0.5, 0);
+    this.#label.position.set(0, NODE_RADIUS + 7);
+    this.#label.eventMode = 'none';
+    this.graphics.addChild(this.#label);
 
     this.#redraw();
   }
@@ -91,151 +120,115 @@ export class StarNode {
   }
 
   setPosition(position: Position): void {
-    this.#position = position;
-    this.graphics.x = position.x;
-    this.graphics.y = position.y;
+    this.#position = { ...position };
+    this.graphics.position.set(position.x, position.y);
   }
 
   setSelected(selected: boolean): void {
-    if (this.#selected === selected) {
-      return;
-    }
+    if (this.#selected === selected) return;
     this.#selected = selected;
     this.#redraw();
   }
 
-  /** Controla a visibilidade (nó oculto = fantasmagórico, revelado = normal). */
-  setRevealed(revealed: boolean): void {
-    if (this.#revealed === revealed) {
-      return;
-    }
-    this.#revealed = revealed;
+  setHovered(hovered: boolean): void {
+    if (this.#hovered === hovered) return;
+    this.#hovered = hovered;
     this.#redraw();
   }
 
-  /** Controla a pulsação (desbloqueado = pulsa lentamente, respirando). */
-  setUnlocked(unlocked: boolean): void {
-    if (this.#unlocked === unlocked) {
-      return;
-    }
-    this.#unlocked = unlocked;
-
-    // Se começa a pulsar, inicia a animação; se para, limpa
-    if (unlocked && !this.#isPulsing) {
-      this.#startPulsing();
-    } else if (!unlocked && this.#isPulsing) {
-      this.#stopPulsing();
-    }
-
-    this.#redraw();
+  /** Surge do nada: cresce e acende (nó recém-revelado ou recém-criado). */
+  playReveal(): void {
+    this.#revealProgress = 0;
+    this.#applyRevealTransform();
   }
 
-  /** Nó permanentemente inalcançável (exclusão mútua fechou todos os caminhos até ele). */
-  setBlocked(blocked: boolean): void {
-    if (this.#blocked === blocked) {
-      return;
-    }
-    this.#blocked = blocked;
-    this.#redraw();
+  /** Onda de luz que se expande a partir da estrela (nó recém-desbloqueado). */
+  playUnlock(): void {
+    this.#unlockProgress = 0;
   }
 
-  /** Nó temporariamente travado (nenhum Aspecto de origem foi comprado ainda). */
-  setPrerequisiteLocked(locked: boolean): void {
-    if (this.#prerequisiteLocked === locked) {
-      return;
+  update(deltaMs: number): void {
+    this.#elapsedMs += deltaMs;
+
+    if (this.#revealProgress < 1) {
+      this.#revealProgress = Math.min(1, this.#revealProgress + deltaMs / REVEAL_DURATION_MS);
+      this.#applyRevealTransform();
     }
-    this.#prerequisiteLocked = locked;
-    this.#redraw();
+
+    if (this.#data.status === 'unlocked') {
+      const phase = (this.#elapsedMs % PULSE_CYCLE_MS) / PULSE_CYCLE_MS;
+      this.#glow.alpha = 0.75 + 0.25 * Math.sin(phase * Math.PI * 2);
+    }
+
+    if (this.#unlockProgress < 1) {
+      this.#ring.clear();
+      this.#unlockProgress = Math.min(1, this.#unlockProgress + deltaMs / UNLOCK_DURATION_MS);
+      if (this.#unlockProgress >= 1) return;
+      const eased = easeOutCubic(this.#unlockProgress);
+      const fade = 1 - this.#unlockProgress;
+      this.#ring.lineStyle(2.5, this.#color, 0.8 * fade);
+      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 70);
+      this.#ring.lineStyle(1.5, PEARL, 0.5 * fade);
+      this.#ring.drawCircle(0, 0, NODE_RADIUS + eased * 45);
+    }
   }
 
   destroy(): void {
-    this.#stopPulsing();
+    // Não destrói a textura do ícone: ela fica no cache do PIXI e é
+    // reaproveitada pela próxima renderização.
+    this.graphics.destroy({ children: true });
+  }
+
+  #applyRevealTransform(): void {
+    const eased = easeOutCubic(this.#revealProgress);
+    this.graphics.scale.set(0.3 + 0.7 * eased);
+    this.graphics.alpha = eased;
   }
 
   #redraw(): void {
-    const isBlocked = this.#blocked && !this.#unlocked;
-    const isPrerequisiteLocked = this.#prerequisiteLocked && !this.#unlocked && !isBlocked;
-    const fill = isBlocked ? BLOCKED_COLOR : hexStringToNumber(this.#color ?? DEFAULT_COLOR);
-    const revealOpacity = this.#revealed ? 1 : 0.35; // nó oculto fica fantasmagórico
-    const opacity = isPrerequisiteLocked ? revealOpacity * 0.6 : revealOpacity;
-    const coreRadius = this.#selected ? NODE_RADIUS + 3 : NODE_RADIUS;
+    const { status, revealed } = this.#data;
+    const unlocked = status === 'unlocked';
+    const highlighted = this.#selected || this.#hovered;
+    let opacity = revealed ? 1 : 0.4;
+    if (status === 'prerequisite') opacity *= 0.6;
+    if (status === 'excluded') opacity *= 0.7;
 
-    // Glow — círculo maior semi-transparente, só visível se revelado e desbloqueado
-    this.#glowGraphics.clear();
-    if (this.#revealed && this.#unlocked) {
-      // A opacidade do glow é controlada pela pulsação
-      const glowOpacity = this.#isPulsing ? 0.5 : 0.4; // pausa visível mesmo sem pulsar
-      this.#glowGraphics.beginFill(fill, glowOpacity * opacity);
-      this.#glowGraphics.drawCircle(0, 0, GLOW_RADIUS);
-      this.#glowGraphics.endFill();
+    this.#glow.clear();
+    if (unlocked || highlighted) {
+      const strength = unlocked ? 1 : 0.6;
+      for (const layer of GLOW_LAYERS) {
+        this.#glow.beginFill(this.#color, layer.alpha * strength * opacity);
+        this.#glow.drawCircle(0, 0, layer.radius);
+        this.#glow.endFill();
+      }
     }
 
-    // Núcleo — a estrela em si
-    this.#coreGraphics.clear();
-    this.#coreGraphics.beginFill(fill, opacity);
-
-    // Contorno: dourado se selecionado, branco suave se desbloqueado, acinzentado
-    // se travado por pré-requisito, quase invisível no caso comum (revelado)
+    this.#core.clear();
     if (this.#selected) {
-      this.#coreGraphics.lineStyle(3, 0xe8d9a0, 0.9); // dourado-pálido do CSS
-    } else if (this.#unlocked) {
-      this.#coreGraphics.lineStyle(2, 0xf5f3ff, 0.6); // branco-perolado para desbloqueado
-    } else if (isPrerequisiteLocked) {
-      this.#coreGraphics.lineStyle(1.5, PREREQUISITE_OUTLINE, 0.7);
+      this.#core.lineStyle(3, SELECTED_OUTLINE, 0.95);
+    } else if (this.#hovered) {
+      this.#core.lineStyle(2, SELECTED_OUTLINE, 0.6);
+    } else if (unlocked) {
+      this.#core.lineStyle(2, PEARL, 0.7);
+    } else if (status === 'prerequisite') {
+      this.#core.lineStyle(1.5, PREREQUISITE_OUTLINE, 0.7);
+    } else if (!revealed) {
+      this.#core.lineStyle(1.5, PEARL, 0.5);
     } else {
-      this.#coreGraphics.lineStyle(1.5, 0xf5f3ff, 0.3); // contorno quase invisível para revelado
+      this.#core.lineStyle(1.5, PEARL, 0.3);
+    }
+    this.#core.beginFill(this.#color, opacity);
+    this.#core.drawCircle(0, 0, this.#selected ? NODE_RADIUS + 3 : NODE_RADIUS);
+    this.#core.endFill();
+    if (unlocked) {
+      // brilho interno: um ponto claro no centro dá volume à estrela
+      this.#core.beginFill(PEARL, 0.55 * opacity);
+      this.#core.drawCircle(0, 0, NODE_RADIUS * 0.35);
+      this.#core.endFill();
     }
 
-    this.#coreGraphics.drawCircle(0, 0, coreRadius);
-    this.#coreGraphics.endFill();
-
-    // Ícone acompanha a mesma opacidade do núcleo (fantasmagórica quando oculto,
-    // reduzida quando travado por pré-requisito)
-    if (this.#iconSprite) {
-      this.#iconSprite.alpha = opacity;
-    }
+    if (this.#icon) this.#icon.alpha = opacity;
+    this.#label.alpha = (highlighted ? 1 : status === 'excluded' ? 0.45 : 0.8) * (revealed ? 1 : 0.6);
+    this.#label.style.fontStyle = revealed ? 'normal' : 'italic';
   }
-
-  #startPulsing(): void {
-    if (this.#isPulsing) {
-      return;
-    }
-    this.#isPulsing = true;
-    this.#pulseStartTime = Date.now();
-    this.#animationFrameId = requestAnimationFrame(() => this.#updatePulse());
-  }
-
-  #stopPulsing(): void {
-    if (this.#animationFrameId !== null) {
-      cancelAnimationFrame(this.#animationFrameId);
-      this.#animationFrameId = null;
-    }
-    this.#isPulsing = false;
-  }
-
-  #updatePulse = (): void => {
-    if (!this.#isPulsing) {
-      return;
-    }
-
-    // Calcula a posição no ciclo (0 a 1 e volta)
-    const elapsed = Date.now() - this.#pulseStartTime;
-    const progress = (elapsed % PULSE_CYCLE_MS) / PULSE_CYCLE_MS;
-
-    // Onda senoidal suave: começa em max, desce pra min, sobe de volta (seno)
-    const sineWave = Math.sin(progress * Math.PI * 2);
-    const pulseOpacity = PULSE_MIN_OPACITY + ((sineWave + 1) / 2) * (PULSE_MAX_OPACITY - PULSE_MIN_OPACITY);
-
-    // Atualiza só o glow com a nova opacidade (núcleo fica fixo)
-    const fill = hexStringToNumber(this.#color ?? DEFAULT_COLOR);
-    this.#glowGraphics.clear();
-    if (this.#revealed && this.#unlocked) {
-      this.#glowGraphics.beginFill(fill, pulseOpacity);
-      this.#glowGraphics.drawCircle(0, 0, GLOW_RADIUS);
-      this.#glowGraphics.endFill();
-    }
-
-    // Continua animando
-    this.#animationFrameId = requestAnimationFrame(() => this.#updatePulse());
-  };
 }

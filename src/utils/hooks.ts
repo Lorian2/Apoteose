@@ -8,6 +8,7 @@ export interface ModuleHookMap {
   'constelacaoApoteose.nodeRevealed': [actorId: string, nodeId: string];
   'constelacaoApoteose.nodeUnlocked': [actorId: string, nodeId: string];
   'constelacaoApoteose.pointGranted': [actorId: string, amount: number];
+  'constelacaoApoteose.pointRevoked': [actorId: string, amount: number];
 }
 
 /**

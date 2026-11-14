@@ -1,11 +1,9 @@
 import type { ConstellationDefinition, PlayerConstellationState } from './constellation';
-import type { ConstellationErrorCode } from '../errors';
 
 /**
- * Registra o schema das flags do módulo junto ao foundry-vtt-types, para que
- * `actor.getFlag('constelacao-da-apoteose', ...)` e equivalentes sejam
- * checados em tempo de compilação em vez de exigir `as` em todo lugar.
- * Deve espelhar o mapeamento do documento "Banco de Dados", seção 8.
+ * Registra o schema das flags e configurações do módulo junto ao
+ * foundry-vtt-types, para `getFlag`/`settings.get` serem checados em tempo
+ * de compilação. Deve espelhar o documento "Banco de Dados", seção 8.
  */
 declare global {
   interface FlagConfig {
@@ -13,15 +11,8 @@ declare global {
       'constelacao-da-apoteose': {
         playerState?: PlayerConstellationState;
         masterJournalId?: string;
-        // Relé de pedido de desbloqueio jogador→Mestre (ver services/gm-relay.ts)
-        unlockRequest?: {
-          requestId: string;
-          nodeId: string;
-          userId: string;
-          status: 'pending' | 'done' | 'error';
-          errorCode?: ConstellationErrorCode;
-          errorMessage?: string;
-        };
+        /** Resto do relé de desbloqueio pelo jogador (≤ 0.1.0); apagado na migração. */
+        unlockRequest?: unknown;
       };
     };
     JournalEntry: {
@@ -29,5 +20,10 @@ declare global {
         masterDefinition?: ConstellationDefinition;
       };
     };
+  }
+
+  interface SettingConfig {
+    'constelacao-da-apoteose.sfxVolume': number;
+    'constelacao-da-apoteose.musicVolume': number;
   }
 }

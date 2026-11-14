@@ -7,7 +7,10 @@ export type ConstellationErrorCode =
   | 'NODE_EXCLUDED'
   | 'PREREQUISITE_NOT_MET'
   | 'SCHEMA_MIGRATION_FAILED'
-  | 'NOT_INITIALIZED';
+  | 'NOT_INITIALIZED'
+  | 'INITIAL_NODE'
+  | 'INVALID_CONNECTION'
+  | 'INVALID_RARITIES';
 
 /**
  * Erro padronizado do módulo (API Interna, seção 2). Toda falha de escrita

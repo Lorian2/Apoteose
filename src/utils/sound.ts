@@ -31,7 +31,7 @@ export function playMediaSound(src: string | undefined | null): void {
   // quem chamou esta função no meio da própria lógica (seleção de nó,
   // revelar, desbloquear).
   try {
-    void foundry.audio.AudioHelper.play({ src, volume, autoplay: true, loop: false }, false);
+    void foundry.audio.AudioHelper.play({ src, volume, loop: false }, false);
   } catch (error) {
     console.warn(`${MODULE_ID} | Falha ao tocar som de mídia (${src}):`, error);
   }

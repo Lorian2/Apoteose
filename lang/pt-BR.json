@@ -1,8 +1,7 @@
 {
   "CONSTELACAO_APOTEOSE.ModuleTitle": "Constelação da Apoteose",
-  "CONSTELACAO_APOTEOSE.LoadedNotification": "Constelação da Apoteose carregado com sucesso.",
-  "CONSTELACAO_APOTEOSE.EditorTitle": "Constelação da Apoteose — Editor",
-  "CONSTELACAO_APOTEOSE.ObservatoryTitle": "Minha Constelação",
+  "CONSTELACAO_APOTEOSE.EditorTitle": "Constelação da Apoteose",
+  "CONSTELACAO_APOTEOSE.ObservatoryTitle": "Constelação",
   "CONSTELACAO_APOTEOSE.OpenButtonLabel": "Constelação da Apoteose",
   "CONSTELACAO_APOTEOSE.OpenObservatoryButtonLabel": "Minha Constelação"
 }

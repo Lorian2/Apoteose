@@ -1,52 +1,50 @@
 import type { Position } from '../types/constellation';
+import { NODE_RADIUS } from './star-node';
 
-const REVEAL_DURATION_MS = 500; // tempo pra a linha "acender"
-const LINE_WIDTH = 2.5;
-const HIT_AREA_WIDTH = 18; // faixa invisível bem mais larga só pra facilitar o clique/toque (útil no modo Remover)
-const LINE_COLOR_END = 0xf5f3ff; // branco-perolado (destino) — caminho normal
-const LINE_COLOR_EXCLUSION = 0xe8d9a0; // dourado-pálido — sinaliza que este caminho tem exclusão mútua configurada
-const LINE_OPACITY_MAX = 0.55; // opacidade final (um pouco mais brilhante que antes)
+const FADE_IN_MS = 900;
+const HIT_AREA_WIDTH = 18; // faixa invisível larga para facilitar o clique
+const ARROW_SIZE = 7;
+const DASH = 7;
+const GAP = 6;
+
+const PEARL = 0xf5f3ff;
+const GOLD = 0xe8d9a0;
 
 /**
- * Representação visual de um caminho entre dois Aspectos (Arquitetura de
- * Software, seção 3 · GDD, seção 8 — linhas que "acendem" com fade gradual).
- *
- * Estados:
- * - Não revelada (`revealed=false`): começa invisível, faz fade-in suave em 500ms
- * - Revelada (`revealed=true`): carrega já visível (compatibilidade com edição em tempo real)
- * - Com exclusão mútua configurada: cor dourada em vez de branco-perolado,
- *   pra o Mestre identificar de relance quais caminhos já têm regra (a regra
- *   em si é marcada pelo painel do nó, não clicando na linha — Banco de
- *   Dados, seção 5).
- *
- * Visual: gradiente suave de cor (mais lavanda na origem, mais branco no destino)
- * para reforçar a direção do caminho.
+ * - `traversed`: as duas pontas desbloqueadas — o caminho que a lenda já percorreu.
+ * - `open`: a origem está desbloqueada; o destino pode ser o próximo passo.
+ * - `dormant`: nenhuma das pontas leva a lugar algum ainda.
+ * - `closed`: o destino ficou fora de alcance (exclusão).
+ * - `exclusion`: não é caminho — liga dois Aspectos em exclusão mútua (só Mestre).
+ */
+export type PathLineState = 'traversed' | 'open' | 'dormant' | 'closed' | 'exclusion';
+
+const STYLE: Record<PathLineState, { color: number; alpha: number; width: number }> = {
+  traversed: { color: GOLD, alpha: 0.85, width: 2.5 },
+  open: { color: PEARL, alpha: 0.55, width: 2 },
+  dormant: { color: PEARL, alpha: 0.25, width: 1.5 },
+  closed: { color: 0x6f6780, alpha: 0.25, width: 1.5 },
+  exclusion: { color: GOLD, alpha: 0.6, width: 1.5 },
+};
+
+/**
+ * Um caminho entre dois Aspectos, com seta no meio indicando o sentido.
+ * Linhas novas acendem com fade gradual (GDD §8: nunca um "pop").
+ * Animação via `update(deltaMs)`, chamado pelo ticker do canvas.
  */
 export class PathLine {
-  readonly graphics: PIXI.Graphics;
+  readonly graphics = new PIXI.Graphics();
   #from: Position;
   #to: Position;
-  #revealed: boolean;
-  #opacity: number;
-  #hasExclusions: boolean;
-  #animationFrameId: number | null = null;
-  #revealStartTime = 0;
-  #isAnimating = false;
+  #state: PathLineState;
+  #selected = false;
+  #fade = 1;
 
-  constructor(from: Position, to: Position, revealed: boolean = true, hasExclusions: boolean = false) {
+  constructor(from: Position, to: Position, state: PathLineState) {
     this.#from = from;
     this.#to = to;
-    this.#revealed = revealed;
-    this.#hasExclusions = hasExclusions;
-    this.#opacity = revealed ? LINE_OPACITY_MAX : 0;
-    this.graphics = new PIXI.Graphics();
+    this.#state = state;
     this.#redraw();
-
-    // Se a linha começa revelada, já é desenhada com opacidade total.
-    // Se não, inicia a animação de fade-in.
-    if (!revealed) {
-      this.#startReveal();
-    }
   }
 
   setEndpoints(from: Position, to: Position): void {
@@ -55,76 +53,76 @@ export class PathLine {
     this.#redraw();
   }
 
-  /** Força a linha a ficar visível imediatamente (sem fade). */
-  reveal(): void {
-    if (this.#revealed) {
-      return;
-    }
-    this.#stopReveal();
-    this.#revealed = true;
-    this.#opacity = LINE_OPACITY_MAX;
+  setSelected(selected: boolean): void {
+    if (this.#selected === selected) return;
+    this.#selected = selected;
+    this.#redraw();
+  }
+
+  playFadeIn(): void {
+    this.#fade = 0;
+    this.#redraw();
+  }
+
+  update(deltaMs: number): void {
+    if (this.#fade >= 1) return;
+    this.#fade = Math.min(1, this.#fade + deltaMs / FADE_IN_MS);
     this.#redraw();
   }
 
   destroy(): void {
-    this.#stopReveal();
+    this.graphics.destroy();
   }
 
   #redraw(): void {
-    this.graphics.clear();
+    const g = this.graphics;
+    g.clear();
 
-    const color = this.#hasExclusions ? LINE_COLOR_EXCLUSION : LINE_COLOR_END;
+    const dx = this.#to.x - this.#from.x;
+    const dy = this.#to.y - this.#from.y;
+    const length = Math.hypot(dx, dy);
+    if (length < NODE_RADIUS * 2) return;
+    const ux = dx / length;
+    const uy = dy / length;
 
-    // Faixa invisível bem mais larga que a linha visual — só existe pra
-    // ampliar a área clicável/tocável no modo Remover, já que uma linha de
-    // 2.5px é praticamente impossível de acertar com precisão de pixel.
-    this.graphics.lineStyle(HIT_AREA_WIDTH, color, 0.001);
-    this.graphics.moveTo(this.#from.x, this.#from.y);
-    this.graphics.lineTo(this.#to.x, this.#to.y);
+    // Começa e termina na borda das estrelas, não no centro.
+    const start = { x: this.#from.x + ux * NODE_RADIUS, y: this.#from.y + uy * NODE_RADIUS };
+    const end = { x: this.#to.x - ux * NODE_RADIUS, y: this.#to.y - uy * NODE_RADIUS };
 
-    this.graphics.lineStyle(LINE_WIDTH, color, this.#opacity);
-    this.graphics.moveTo(this.#from.x, this.#from.y);
-    this.graphics.lineTo(this.#to.x, this.#to.y);
-  }
+    const style = STYLE[this.#state];
+    const color = this.#selected ? GOLD : style.color;
+    const alpha = (this.#selected ? 1 : style.alpha) * this.#fade;
+    const width = this.#selected ? style.width + 1 : style.width;
 
-  #startReveal(): void {
-    if (this.#isAnimating) {
+    if (this.#state !== 'exclusion') {
+      g.lineStyle(HIT_AREA_WIDTH, color, 0.001);
+      g.moveTo(start.x, start.y);
+      g.lineTo(end.x, end.y);
+    }
+
+    g.lineStyle(width, color, alpha);
+    if (this.#state === 'exclusion') {
+      const total = Math.hypot(end.x - start.x, end.y - start.y);
+      for (let offset = 0; offset < total; offset += DASH + GAP) {
+        const segmentEnd = Math.min(offset + DASH, total);
+        g.moveTo(start.x + ux * offset, start.y + uy * offset);
+        g.lineTo(start.x + ux * segmentEnd, start.y + uy * segmentEnd);
+      }
       return;
     }
-    this.#isAnimating = true;
-    this.#revealStartTime = Date.now();
-    this.#animationFrameId = requestAnimationFrame(() => this.#updateReveal());
+
+    g.moveTo(start.x, start.y);
+    g.lineTo(end.x, end.y);
+
+    // Seta no meio do caminho, apontando para o destino.
+    const midX = (start.x + end.x) / 2 + ux * ARROW_SIZE * 0.5;
+    const midY = (start.y + end.y) / 2 + uy * ARROW_SIZE * 0.5;
+    g.lineStyle(0);
+    g.beginFill(color, alpha);
+    g.moveTo(midX, midY);
+    g.lineTo(midX - ux * ARROW_SIZE - uy * ARROW_SIZE * 0.6, midY - uy * ARROW_SIZE + ux * ARROW_SIZE * 0.6);
+    g.lineTo(midX - ux * ARROW_SIZE + uy * ARROW_SIZE * 0.6, midY - uy * ARROW_SIZE - ux * ARROW_SIZE * 0.6);
+    g.closePath();
+    g.endFill();
   }
-
-  #stopReveal(): void {
-    if (this.#animationFrameId !== null) {
-      cancelAnimationFrame(this.#animationFrameId);
-      this.#animationFrameId = null;
-    }
-    this.#isAnimating = false;
-  }
-
-  #updateReveal = (): void => {
-    if (!this.#isAnimating) {
-      return;
-    }
-
-    const elapsed = Date.now() - this.#revealStartTime;
-    const progress = Math.min(elapsed / REVEAL_DURATION_MS, 1);
-
-    // Easing: começa lento, acelera, depois desacelera (easeInOutQuad)
-    const eased = progress < 0.5
-      ? 2 * progress * progress
-      : -1 + (4 - 2 * progress) * progress;
-
-    this.#opacity = LINE_OPACITY_MAX * eased;
-    this.#redraw();
-
-    // Se chegou ao final, para; senão continua
-    if (progress >= 1) {
-      this.#stopReveal();
-    } else {
-      this.#animationFrameId = requestAnimationFrame(() => this.#updateReveal());
-    }
-  };
 }

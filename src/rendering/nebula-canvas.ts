@@ -1,31 +1,31 @@
-import type { PathConnection, Position, RarityTier } from '../types/constellation';
+import type { ExclusionPair, NodeStatus, PathConnection, Position, RarityTier } from '../types/constellation';
 import { CameraController } from './camera-controller';
-import { PathLine } from './path-line';
-import { StarNode } from './star-node';
+import { PathLine, type PathLineState } from './path-line';
+import { NODE_RADIUS, StarNode } from './star-node';
 import { ParticleField } from './particle-field';
 
-// Tamanho do ladrilho de fundo (Container#world, mesma unidade que a
-// posição dos nós) — bem maior que qualquer área de pan/zoom razoável, pra
-// dar a sensação de fundo infinito sem precisar recalcular posição do
-// tiling a cada frame de câmera.
+// Tamanho do ladrilho de fundo, na unidade do mundo — bem maior que
+// qualquer área de pan/zoom razoável, para parecer infinito.
 const BACKGROUND_TILE_EXTENT = 40000;
+const DRAG_THRESHOLD_PX = 4;
+const DOUBLE_TAP_MS = 350;
 
 export interface RenderableNode {
   id: string;
+  name: string;
   position: Position;
   color?: string;
   icon?: string;
   rarityId: string;
   revealed: boolean;
-  unlocked: boolean;
-  blocked?: boolean;
-  prerequisiteLocked?: boolean;
+  status: NodeStatus;
 }
 
 export type NebulaCanvasMode = 'select' | 'connect' | 'create' | 'remove';
 
 export interface NebulaCanvasCallbacks {
   onNodeSelected?: (nodeId: string | null) => void;
+  onConnectionSelected?: (connectionId: string) => void;
   onNodeMoved?: (nodeId: string, position: Position) => void;
   onConnectionRequested?: (fromNodeId: string, toNodeId: string) => void;
   onCreateRequested?: (position: Position) => void;
@@ -33,54 +33,79 @@ export interface NebulaCanvasCallbacks {
   onConnectionRemoveRequested?: (connectionId: string) => void;
 }
 
+export interface NebulaCanvasOptions {
+  /** Editor do Mestre: arrastar, criar, conectar e remover. Falso no Observatório. */
+  editable: boolean;
+}
+
 /**
- * Container PIXI de topo (Arquitetura de Software, seção 3). Recebe um
- * modelo de visualização já pronto e emite eventos de interação para cima
- * via callbacks — nunca lê ou escreve dados por conta própria.
+ * Container PIXI de topo. Recebe um modelo de visualização pronto e emite
+ * eventos de interação via callbacks — nunca lê ou escreve dados.
+ *
+ * Camadas fixas (criadas uma vez): fundo → poeira → exclusões → caminhos →
+ * estrelas → sobreposição (linha-prévia da conexão). `render()` só refaz
+ * exclusões, caminhos e estrelas, destruindo os objetos antigos.
+ *
+ * Animações automáticas entre renderizações: estrela que não existia
+ * surge (revelada/criada), estrela que passou a desbloqueada solta uma
+ * onda de luz, caminho novo acende devagar.
  */
 export class NebulaCanvas {
   readonly #app: PIXI.Application;
-  readonly #world: PIXI.Container;
+  readonly #world = new PIXI.Container();
+  readonly #backgroundLayer = new PIXI.Container();
+  readonly #exclusionLayer = new PIXI.Container();
+  readonly #lineLayer = new PIXI.Container();
+  readonly #starLayer = new PIXI.Container();
+  readonly #overlay = new PIXI.Graphics();
   readonly #camera: CameraController;
   readonly #callbacks: NebulaCanvasCallbacks;
+  readonly #options: NebulaCanvasOptions;
   readonly #resizeObserver: ResizeObserver;
+  readonly #particleField = new ParticleField();
 
   #stars = new Map<string, StarNode>();
   #lines = new Map<string, { connection: PathConnection; line: PathLine }>();
-  #connectionsByNode = new Map<string, Set<string>>();
+  #exclusionLines: { pair: ExclusionPair; line: PathLine }[] = [];
   #mode: NebulaCanvasMode = 'select';
   #selectedNodeId: string | null = null;
-  #pendingConnectionSource: string | null = null;
-  #draggingNodeId: string | null = null;
-  #hasCenteredWorld = false;
-  #lastCreatedConnectionId: string | null = null;
+  #selectedConnectionId: string | null = null;
+  #connectSourceId: string | null = null;
+  #pointerWorld: Position | null = null;
+  #drag: { nodeId: string; startGlobal: Position; offset: Position; moved: boolean } | null = null;
+  #lastStageTap = { time: 0, x: 0, y: 0 };
   #backgroundSprite: PIXI.TilingSprite | undefined;
   #backgroundPath: string | undefined;
-  #particleField: ParticleField;
+  #previousUnlocked: Map<string, boolean> | null = null;
+  #knownConnectionIds = new Set<string>();
+  #needsInitialFit = true;
+  #hasSize = false;
 
-  constructor(container: HTMLElement, callbacks: NebulaCanvasCallbacks = {}) {
+  constructor(container: HTMLElement, callbacks: NebulaCanvasCallbacks, options: NebulaCanvasOptions) {
     this.#callbacks = callbacks;
-
-    // Chute inicial razoável — a medida de verdade vem do primeiro callback
-    // do ResizeObserver logo abaixo, depois que o grid CSS já se ajustou.
-    const initialWidth = container.clientWidth || 640;
-    const initialHeight = container.clientHeight || 480;
+    this.#options = options;
 
     this.#app = new PIXI.Application({
-      width: initialWidth,
-      height: initialHeight,
+      width: container.clientWidth || 640,
+      height: container.clientHeight || 480,
       backgroundAlpha: 0,
       antialias: true,
       resolution: window.devicePixelRatio || 1,
       autoDensity: true,
     });
-
     container.appendChild(this.#app.view as HTMLCanvasElement);
 
-    this.#world = new PIXI.Container();
+    this.#overlay.eventMode = 'none';
+    this.#exclusionLayer.eventMode = 'none';
+    this.#world.addChild(
+      this.#backgroundLayer,
+      this.#particleField.container,
+      this.#exclusionLayer,
+      this.#lineLayer,
+      this.#starLayer,
+      this.#overlay,
+    );
     this.#app.stage.addChild(this.#world);
-
-    this.#particleField = new ParticleField();
     this.#app.ticker.add(this.#onTick);
 
     this.#camera = new CameraController(this.#app.view as HTMLCanvasElement, this.#world);
@@ -92,263 +117,374 @@ export class NebulaCanvas {
     this.#app.stage.on('pointerup', this.#onStagePointerUp);
     this.#app.stage.on('pointerupoutside', this.#onStagePointerUp);
 
-    // O tamanho real do container só é confiável depois que o layout (grid
-    // CSS de três colunas) termina de se resolver — medir de forma síncrona
-    // no construtor pega, às vezes, um valor pequeno/errado. O
-    // ResizeObserver corrige isso automaticamente, e também mantém o canvas
-    // correto se a janela for redimensionada depois (ela é `resizable`).
+    // O tamanho real do container só é confiável depois do layout em grid.
     this.#resizeObserver = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) {
-        return;
-      }
-      const { width, height } = entry.contentRect;
-      if (width <= 0 || height <= 0) {
-        return;
-      }
-      this.#app.renderer.resize(width, height);
+      const rect = entries[0]?.contentRect;
+      if (!rect || rect.width <= 0 || rect.height <= 0) return;
+      this.#app.renderer.resize(rect.width, rect.height);
       this.#app.stage.hitArea = this.#app.screen;
-      if (!this.#hasCenteredWorld) {
-        this.#world.x = width / 2;
-        this.#world.y = height / 2;
-        this.#hasCenteredWorld = true;
+      if (!this.#hasSize) {
+        this.#hasSize = true;
+        this.#world.position.set(rect.width / 2, rect.height / 2);
       }
+      this.#tryInitialFit();
     });
     this.#resizeObserver.observe(container);
   }
 
   setMode(mode: NebulaCanvasMode): void {
     this.#mode = mode;
-    this.#pendingConnectionSource = null;
+    this.#cancelConnect();
+    this.#app.stage.cursor = mode === 'create' ? 'crosshair' : 'default';
   }
 
-  #onTick = (): void => {
-    this.#particleField.update(this.#app.ticker.deltaMS);
-  };
-
-  /** Recentraliza a câmera e volta o zoom a 100% (botão "Recentralizar" da toolbar). */
-  recenterView(): void {
-    this.#camera.resetView(this.#app.screen.width, this.#app.screen.height);
+  get mode(): NebulaCanvasMode {
+    return this.#mode;
   }
 
-  render(nodes: RenderableNode[], connections: PathConnection[], rarities: RarityTier[]): void {
-    // Limpa estrelas antigas
-    for (const star of this.#stars.values()) {
-      star.destroy();
+  /** Enquadra todas as estrelas (botão ◎ e tecla F). */
+  fitView(animate = true): void {
+    const bounds = this.#computeBounds();
+    if (!bounds) {
+      this.#camera.animateTo({ x: this.#app.screen.width / 2, y: this.#app.screen.height / 2, scale: 1 }, 400);
+      return;
     }
+    this.#camera.fit(bounds, this.#app.screen, animate);
+  }
 
-    // Limpa linhas antigas
-    for (const entry of this.#lines.values()) {
-      entry.line.destroy();
-    }
+  /** Centraliza uma estrela sem mudar o zoom. */
+  focusNode(nodeId: string): void {
+    const star = this.#stars.get(nodeId);
+    if (!star) return;
+    const scale = this.#camera.scale;
+    this.#camera.animateTo(
+      {
+        x: this.#app.screen.width / 2 - star.position.x * scale,
+        y: this.#app.screen.height / 2 - star.position.y * scale,
+        scale,
+      },
+      400,
+    );
+  }
 
-    this.#world.removeChildren();
-    this.#stars.clear();
-    this.#lines.clear();
-    this.#connectionsByNode.clear();
+  /** Ponto do mundo no centro da tela (para criar um Aspecto pelo teclado). */
+  viewCenter(): Position {
+    const point = this.#world.toLocal(new PIXI.Point(this.#app.screen.width / 2, this.#app.screen.height / 2));
+    return { x: point.x, y: point.y };
+  }
 
-    // Poeira cósmica sempre atrás de conexões/estrelas — o fundo (se houver)
-    // entra depois disso, via setBackground(), forçado pra posição 0 (mais
-    // atrás ainda). O container em si nunca é recriado, só reencaixado aqui
-    // a cada render() — a animação contínua dele não é afetada.
-    this.#world.addChild(this.#particleField.container);
+  selectConnection(connectionId: string | null): void {
+    this.#selectedConnectionId = connectionId;
+    for (const [id, entry] of this.#lines) entry.line.setSelected(id === connectionId);
+  }
 
+  render(
+    nodes: RenderableNode[],
+    connections: PathConnection[],
+    rarities: RarityTier[],
+    exclusions: ExclusionPair[] = [],
+  ): void {
+    this.#clearScene();
     const rarityColor = new Map(rarities.map((rarity) => [rarity.id, rarity.color]));
-    const positionById = new Map(nodes.map((node) => [node.id, node.position]));
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const animate = this.#previousUnlocked !== null;
+
+    for (const pair of exclusions) {
+      const a = nodeById.get(pair.a);
+      const b = nodeById.get(pair.b);
+      if (!a || !b) continue;
+      const line = new PathLine(a.position, b.position, 'exclusion');
+      this.#exclusionLayer.addChild(line.graphics);
+      this.#exclusionLines.push({ pair, line });
+    }
 
     for (const connection of connections) {
-      const from = positionById.get(connection.fromNodeId);
-      const to = positionById.get(connection.toNodeId);
-      if (!from || !to) {
-        continue;
-      }
+      const from = nodeById.get(connection.fromNodeId);
+      const to = nodeById.get(connection.toNodeId);
+      if (!from || !to) continue;
 
-      // Só a conexão marcada como criada faz fade-in; todas as outras aparecem já visíveis
-      const shouldAnimate = connection.id === this.#lastCreatedConnectionId;
-      const hasExclusions = (connection.excludedByNodeIds?.length ?? 0) > 0;
-      const line = new PathLine(from, to, !shouldAnimate, hasExclusions);
-
+      const line = new PathLine(from.position, to.position, lineState(from.status, to.status));
+      line.setSelected(connection.id === this.#selectedConnectionId);
+      if (animate && !this.#knownConnectionIds.has(connection.id)) line.playFadeIn();
       line.graphics.eventMode = 'static';
-      line.graphics.cursor = 'pointer';
+      line.graphics.cursor = this.#options.editable ? 'pointer' : 'default';
       line.graphics.on('pointerdown', (event: PIXI.FederatedPointerEvent) => {
         event.stopPropagation();
         this.#onLinePointerDown(connection.id);
       });
-      this.#world.addChild(line.graphics);
+      this.#lineLayer.addChild(line.graphics);
       this.#lines.set(connection.id, { connection, line });
-
-      this.#trackConnectionForNode(connection.fromNodeId, connection.id);
-      this.#trackConnectionForNode(connection.toNodeId, connection.id);
     }
-
-    // Limpa o flag depois de usar (só anima a linha uma vez)
-    this.#lastCreatedConnectionId = null;
+    this.#knownConnectionIds = new Set(connections.map((connection) => connection.id));
 
     for (const node of nodes) {
-      const star = new StarNode(node.id, node.position, node.color ?? rarityColor.get(node.rarityId), node.icon);
-      star.setRevealed(node.revealed);
-      star.setUnlocked(node.unlocked);
-      star.setBlocked(node.blocked ?? false);
-      star.setPrerequisiteLocked(node.prerequisiteLocked ?? false);
-      star.setSelected(node.id === this.#selectedNodeId);
+      const star = new StarNode({
+        id: node.id,
+        name: node.name,
+        position: node.position,
+        color: node.color || rarityColor.get(node.rarityId),
+        icon: node.icon,
+        revealed: node.revealed,
+        status: node.status,
+      });
+      star.setSelected(node.id === this.#selectedNodeId || node.id === this.#connectSourceId);
+      if (animate) {
+        const wasUnlocked = this.#previousUnlocked!.get(node.id);
+        if (wasUnlocked === undefined) star.playReveal();
+        else if (!wasUnlocked && node.status === 'unlocked') star.playUnlock();
+      }
       star.graphics.on('pointerdown', (event: PIXI.FederatedPointerEvent) => {
         event.stopPropagation();
-        this.#onStarPointerDown(node.id, star);
+        this.#onStarPointerDown(node.id, event);
       });
-      this.#world.addChild(star.graphics);
+      star.graphics.on('pointerover', () => star.setHovered(true));
+      star.graphics.on('pointerout', () => star.setHovered(false));
+      this.#starLayer.addChild(star.graphics);
       this.#stars.set(node.id, star);
     }
+    this.#previousUnlocked = new Map(nodes.map((node) => [node.id, node.status === 'unlocked']));
+
+    if (this.#selectedNodeId && !this.#stars.has(this.#selectedNodeId)) this.#selectedNodeId = null;
+    if (this.#selectedConnectionId && !this.#lines.has(this.#selectedConnectionId)) this.#selectedConnectionId = null;
+    this.#tryInitialFit();
   }
 
-  /**
-   * Imagem de fundo ladrilhada/infinita (GDD — imagem sem costura, repete
-   * pelo canvas). Vive num TilingSprite bem grande, filho do próprio
-   * `#world` — assim acompanha pan/zoom automaticamente, sem precisar
-   * recalcular offset a cada frame. Só recria a textura quando o caminho
-   * muda de verdade; `render()` chama `removeChildren()` a cada
-   * atualização, então sempre reinserimos o sprite (já existente) na
-   * posição 0 depois, sem recarregar nada.
-   */
+  /** Imagem de fundo ladrilhada, filha do mundo — acompanha pan/zoom. */
   setBackground(path: string | undefined): void {
-    if (path === this.#backgroundPath) {
-      if (this.#backgroundSprite && !this.#backgroundSprite.parent) {
-        this.#world.addChildAt(this.#backgroundSprite, 0);
-      }
-      return;
-    }
-
+    if (path === this.#backgroundPath) return;
     this.#backgroundSprite?.destroy();
     this.#backgroundSprite = undefined;
     this.#backgroundPath = path;
-
-    if (!path) {
-      return;
-    }
+    if (!path) return;
 
     const texture = PIXI.Texture.from(path);
     this.#backgroundSprite = new PIXI.TilingSprite(texture, BACKGROUND_TILE_EXTENT, BACKGROUND_TILE_EXTENT);
     this.#backgroundSprite.anchor.set(0.5);
-    this.#backgroundSprite.eventMode = 'none'; // nunca rouba clique/drag do que está por cima
-    this.#world.addChildAt(this.#backgroundSprite, 0);
+    this.#backgroundSprite.eventMode = 'none';
+    this.#backgroundLayer.addChild(this.#backgroundSprite);
   }
 
   destroy(): void {
-    // Cancela animações de pulsação de todas as estrelas
-    for (const star of this.#stars.values()) {
-      star.destroy();
-    }
     this.#app.ticker.remove(this.#onTick);
-    this.#particleField.destroy();
+    this.#clearScene();
     this.#resizeObserver.disconnect();
     this.#camera.destroy();
     this.#app.destroy(true, { children: true });
   }
 
-  #trackConnectionForNode(nodeId: string, connectionId: string): void {
-    const existing = this.#connectionsByNode.get(nodeId);
-    if (existing) {
-      existing.add(connectionId);
-    } else {
-      this.#connectionsByNode.set(nodeId, new Set([connectionId]));
-    }
+  // -------------------------------------------------------------------
+
+  #clearScene(): void {
+    for (const star of this.#stars.values()) star.destroy();
+    for (const { line } of this.#lines.values()) line.destroy();
+    for (const { line } of this.#exclusionLines) line.destroy();
+    this.#stars.clear();
+    this.#lines.clear();
+    this.#exclusionLines = [];
   }
 
-  /** Redesenha toda linha que toca o nó informado, na posição atual dele. */
+  #tryInitialFit(): void {
+    if (!this.#needsInitialFit || !this.#hasSize || this.#stars.size === 0) return;
+    this.#needsInitialFit = false;
+    this.fitView(false);
+  }
+
+  #computeBounds(): { minX: number; minY: number; maxX: number; maxY: number } | null {
+    if (this.#stars.size === 0) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const star of this.#stars.values()) {
+      minX = Math.min(minX, star.position.x);
+      minY = Math.min(minY, star.position.y);
+      maxX = Math.max(maxX, star.position.x);
+      maxY = Math.max(maxY, star.position.y + NODE_RADIUS * 2); // espaço do nome
+    }
+    return { minX, minY, maxX, maxY };
+  }
+
+  #onTick = (): void => {
+    const deltaMs = this.#app.ticker.deltaMS;
+    this.#particleField.update(deltaMs);
+    for (const star of this.#stars.values()) star.update(deltaMs);
+    for (const { line } of this.#lines.values()) line.update(deltaMs);
+    this.#drawConnectPreview();
+  };
+
+  #drawConnectPreview(): void {
+    this.#overlay.clear();
+    const source = this.#connectSourceId ? this.#stars.get(this.#connectSourceId) : undefined;
+    if (!source || !this.#pointerWorld) return;
+    this.#overlay.lineStyle(2, 0xe8d9a0, 0.7);
+    this.#overlay.moveTo(source.position.x, source.position.y);
+    this.#overlay.lineTo(this.#pointerWorld.x, this.#pointerWorld.y);
+  }
+
   #updateLinesForNode(nodeId: string): void {
-    const connectionIds = this.#connectionsByNode.get(nodeId);
-    if (!connectionIds) {
-      return;
+    for (const { connection, line } of this.#lines.values()) {
+      if (connection.fromNodeId !== nodeId && connection.toNodeId !== nodeId) continue;
+      const from = this.#stars.get(connection.fromNodeId)?.position;
+      const to = this.#stars.get(connection.toNodeId)?.position;
+      if (from && to) line.setEndpoints(from, to);
     }
-    for (const connectionId of connectionIds) {
-      const entry = this.#lines.get(connectionId);
-      if (!entry) {
-        continue;
-      }
-      const fromPosition = this.#stars.get(entry.connection.fromNodeId)?.position;
-      const toPosition = this.#stars.get(entry.connection.toNodeId)?.position;
-      if (fromPosition && toPosition) {
-        entry.line.setEndpoints(fromPosition, toPosition);
-      }
+    for (const { pair, line } of this.#exclusionLines) {
+      if (pair.a !== nodeId && pair.b !== nodeId) continue;
+      const a = this.#stars.get(pair.a)?.position;
+      const b = this.#stars.get(pair.b)?.position;
+      if (a && b) line.setEndpoints(a, b);
     }
   }
 
-  #onStarPointerDown(nodeId: string, star: StarNode): void {
-    if (this.#mode === 'remove') {
+  #starAt(world: Position): string | null {
+    for (const [id, star] of this.#stars) {
+      if (Math.hypot(star.position.x - world.x, star.position.y - world.y) <= NODE_RADIUS + 8) return id;
+    }
+    return null;
+  }
+
+  #cancelConnect(): void {
+    if (this.#connectSourceId && this.#connectSourceId !== this.#selectedNodeId) {
+      this.#stars.get(this.#connectSourceId)?.setSelected(false);
+    }
+    this.#connectSourceId = null;
+    this.#overlay.clear();
+  }
+
+  #onStarPointerDown(nodeId: string, event: PIXI.FederatedPointerEvent): void {
+    if (event.button !== 0) return;
+    const editable = this.#options.editable;
+
+    if (editable && this.#mode === 'remove') {
       this.#callbacks.onNodeRemoveRequested?.(nodeId);
       return;
     }
 
-    if (this.#mode === 'connect') {
-      if (!this.#pendingConnectionSource) {
-        this.#pendingConnectionSource = nodeId;
-        star.setSelected(true);
+    // Modo Conectar (clique, clique) ou Shift+arrastar a partir da estrela.
+    if (editable && (this.#mode === 'connect' || event.shiftKey)) {
+      if (!this.#connectSourceId) {
+        this.#connectSourceId = nodeId;
+        this.#stars.get(nodeId)?.setSelected(true);
+        this.#pointerWorld = this.#world.toLocal(event.global);
+        this.#camera.setPanningEnabled(false); // volta no pointerup
         return;
       }
-      if (this.#pendingConnectionSource !== nodeId) {
-        this.#callbacks.onConnectionRequested?.(this.#pendingConnectionSource, nodeId);
+      if (this.#connectSourceId !== nodeId) {
+        this.#callbacks.onConnectionRequested?.(this.#connectSourceId, nodeId);
       }
-      this.#stars.get(this.#pendingConnectionSource)?.setSelected(false);
-      this.#pendingConnectionSource = null;
+      this.#cancelConnect();
       return;
     }
 
     this.#selectNode(nodeId);
-    this.#draggingNodeId = nodeId;
+    if (editable) {
+      const star = this.#stars.get(nodeId)!;
+      const local = this.#world.toLocal(event.global);
+      this.#drag = {
+        nodeId,
+        startGlobal: { x: event.global.x, y: event.global.y },
+        offset: { x: star.position.x - local.x, y: star.position.y - local.y },
+        moved: false,
+      };
+    }
     this.#camera.setPanningEnabled(false);
   }
 
   #onLinePointerDown(connectionId: string): void {
+    if (!this.#options.editable) return;
     if (this.#mode === 'remove') {
       this.#callbacks.onConnectionRemoveRequested?.(connectionId);
+      return;
+    }
+    if (this.#mode === 'select') {
+      this.#selectNode(null, false);
+      this.selectConnection(connectionId);
+      this.#callbacks.onConnectionSelected?.(connectionId);
     }
   }
 
   #onStageTap = (event: PIXI.FederatedPointerEvent): void => {
-    if (event.target !== this.#app.stage) {
+    if (event.target !== this.#app.stage) return;
+    if (this.#camera.consumePanFlag()) return;
+    const local = this.#world.toLocal(event.global);
+
+    if (this.#connectSourceId && this.#mode === 'connect') {
+      this.#cancelConnect();
       return;
     }
-    if (this.#mode === 'create') {
-      const local = this.#world.toLocal(event.global);
-      this.#callbacks.onCreateRequested?.({ x: local.x, y: local.y });
-      return;
+
+    if (this.#options.editable) {
+      const now = performance.now();
+      const isDoubleTap =
+        now - this.#lastStageTap.time < DOUBLE_TAP_MS &&
+        Math.hypot(event.global.x - this.#lastStageTap.x, event.global.y - this.#lastStageTap.y) < 8;
+      this.#lastStageTap = { time: isDoubleTap ? 0 : now, x: event.global.x, y: event.global.y };
+
+      if (this.#mode === 'create' || (this.#mode === 'select' && isDoubleTap)) {
+        this.#callbacks.onCreateRequested?.({ x: local.x, y: local.y });
+        return;
+      }
     }
+
+    this.selectConnection(null);
     this.#selectNode(null);
   };
 
   #onStagePointerMove = (event: PIXI.FederatedPointerEvent): void => {
-    if (!this.#draggingNodeId) {
-      return;
+    if (this.#connectSourceId) {
+      this.#pointerWorld = this.#world.toLocal(event.global);
     }
-    const star = this.#stars.get(this.#draggingNodeId);
-    if (!star) {
-      return;
+
+    if (!this.#drag) return;
+    if (!this.#drag.moved) {
+      const distance = Math.hypot(event.global.x - this.#drag.startGlobal.x, event.global.y - this.#drag.startGlobal.y);
+      if (distance < DRAG_THRESHOLD_PX) return;
+      this.#drag.moved = true;
     }
+    const star = this.#stars.get(this.#drag.nodeId);
+    if (!star) return;
     const local = this.#world.toLocal(event.global);
-    star.setPosition({ x: local.x, y: local.y });
-    this.#updateLinesForNode(this.#draggingNodeId);
+    star.setPosition({ x: local.x + this.#drag.offset.x, y: local.y + this.#drag.offset.y });
+    this.#updateLinesForNode(this.#drag.nodeId);
   };
 
-  #onStagePointerUp = (): void => {
-    if (!this.#draggingNodeId) {
-      return;
+  #onStagePointerUp = (event: PIXI.FederatedPointerEvent): void => {
+    // Shift+arrastar: soltar em cima de outra estrela cria o caminho.
+    if (this.#connectSourceId && this.#mode !== 'connect') {
+      const target = this.#starAt(this.#world.toLocal(event.global));
+      if (target && target !== this.#connectSourceId) {
+        this.#callbacks.onConnectionRequested?.(this.#connectSourceId, target);
+      }
+      this.#cancelConnect();
     }
-    const star = this.#stars.get(this.#draggingNodeId);
-    if (star) {
-      this.#callbacks.onNodeMoved?.(this.#draggingNodeId, star.position);
+
+    if (this.#drag?.moved) {
+      const star = this.#stars.get(this.#drag.nodeId);
+      if (star) this.#callbacks.onNodeMoved?.(this.#drag.nodeId, star.position);
     }
-    this.#draggingNodeId = null;
+    this.#drag = null;
     this.#camera.setPanningEnabled(true);
   };
 
-  #selectNode(nodeId: string | null): void {
-    if (this.#selectedNodeId) {
-      this.#stars.get(this.#selectedNodeId)?.setSelected(false);
-    }
+  #selectNode(nodeId: string | null, notify = true): void {
+    if (this.#selectedNodeId) this.#stars.get(this.#selectedNodeId)?.setSelected(false);
     this.#selectedNodeId = nodeId;
     if (nodeId) {
       this.#stars.get(nodeId)?.setSelected(true);
+      this.selectConnection(null);
     }
-    this.#callbacks.onNodeSelected?.(nodeId);
+    if (notify) this.#callbacks.onNodeSelected?.(nodeId);
   }
 
+  /** Mantém a seleção visual em sincronia quando o painel muda a seleção. */
+  setSelectedNode(nodeId: string | null): void {
+    this.#selectNode(nodeId, false);
+  }
+}
+
+function lineState(from: NodeStatus, to: NodeStatus): PathLineState {
+  if (to === 'excluded' || from === 'excluded') return 'closed';
+  if (from === 'unlocked' && to === 'unlocked') return 'traversed';
+  if (from === 'unlocked') return 'open';
+  return 'dormant';
 }
