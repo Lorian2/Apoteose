@@ -1,6 +1,6 @@
 {
   "name": "constelacao-da-apoteose",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Sistema de evolução narrativa para Foundry VTT",
   "type": "module",
   "private": true,

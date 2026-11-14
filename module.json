@@ -3,7 +3,7 @@
   "type": "module",
   "title": "Constelação da Apoteose",
   "description": "Sistema de evolução narrativa para Foundry VTT: cada personagem constrói sua própria constelação de Aspectos, revelada e controlada inteiramente pelo Mestre.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "compatibility": {
     "minimum": 13,
     "verified": 14
@@ -42,7 +42,7 @@
   },
   "url": "https://github.com/Lorian2/Apoteose",
   "manifest": "https://github.com/Lorian2/Apoteose/releases/latest/download/module.json",
-  "download": "https://github.com/Lorian2/Apoteose/releases/download/v0.2.0/constelacao-da-apoteose.zip",
+  "download": "https://github.com/Lorian2/Apoteose/releases/download/v0.3.0/constelacao-da-apoteose.zip",
   "readme": "https://github.com/Lorian2/Apoteose/blob/main/README.md",
   "changelog": "https://github.com/Lorian2/Apoteose/blob/main/CHANGELOG.md",
   "bugs": "https://github.com/Lorian2/Apoteose/issues"
