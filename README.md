@@ -54,7 +54,7 @@ TypeScript + esbuild. O Foundry carrega `dist/main.js`, que é gerado pelo build
 ### Lançar uma versão
 
 1. Escreva a seção `## [X.Y.Z] - AAAA-MM-DD` no `CHANGELOG.md`.
-2. Crie e envie a tag `vX.Y.Z` (no repositório de desenvolvimento: `.\tools\release-apoteose.ps1 X.Y.Z`).
+2. Rode `.\tools\release.ps1 X.Y.Z` (testes e tipos, versão no `module.json`, commit, tag `vX.Y.Z` e envio).
 3. A Action [Release](.github/workflows/release.yml) roda testes e tipos, compila, grava versão e links no `module.json` e publica o `constelacao-da-apoteose.zip`. O manifesto `releases/latest/download/module.json` passa a apontar para a versão nova.
 
 Documentos de design em `docs/`, guia de customização em `CUSTOMIZACAO.md`, histórico em `CHANGELOG.md`.
