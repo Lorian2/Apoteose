@@ -17,5 +17,12 @@ export interface ModuleHookMap {
  * código nunca precisa escapar do sistema de tipos para disparar um hook.
  */
 export function callModuleHook<K extends keyof ModuleHookMap>(name: K, ...args: ModuleHookMap[K]): void {
-  (Hooks.callAll as (hook: string, ...hookArgs: unknown[]) => boolean)(name, ...args);
+  // `.call(Hooks, …)`: na V14 os métodos estáticos de Hooks usam campos
+  // privados e lançam erro se chamados soltos, sem `this`.
+  (Hooks.callAll as (hook: string, ...hookArgs: unknown[]) => boolean).call(Hooks, name, ...args);
+}
+
+/** Registra um hook que os tipos do foundry-vtt-types ainda não conhecem. */
+export function onUntypedHook(name: string, fn: (...args: never[]) => unknown): number {
+  return (Hooks.on as unknown as (hook: string, callback: (...args: never[]) => unknown) => number).call(Hooks, name, fn);
 }

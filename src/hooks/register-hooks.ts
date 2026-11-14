@@ -3,6 +3,7 @@ import { EditorApplication } from '../applications/editor-application';
 import { ObservatoryApplication } from '../applications/observatory-application';
 import { ConstellationService } from '../services/constellation-service';
 import { ConstellationError } from '../errors';
+import { onUntypedHook } from '../utils/hooks';
 
 const service = new ConstellationService();
 
@@ -53,8 +54,7 @@ export function registerHooks(): void {
   });
 
   // Hook da v13+ (`get${documentName}ContextOptions`) que os tipos ainda não conhecem.
-  const onHook = Hooks.on as unknown as (hook: string, fn: (...args: never[]) => unknown) => number;
-  onHook('getActorContextOptions', (_application: unknown, entries: unknown[]) => {
+  onUntypedHook('getActorContextOptions', (_application: unknown, entries: unknown[]) => {
     const actorFrom = (target: HTMLElement) => game.actors?.get(target.closest<HTMLElement>('[data-entry-id]')?.dataset.entryId ?? '');
     entries.push({
       label: game.i18n?.localize('CONSTELACAO_APOTEOSE.OpenButtonLabel') ?? 'Constelação da Apoteose',

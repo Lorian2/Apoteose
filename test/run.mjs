@@ -15,7 +15,19 @@ globalThis.foundry = {
     deepClone: (value) => structuredClone(value),
   },
 };
-globalThis.Hooks = { callAll: () => true };
+// Imita a V14: métodos estáticos com campo privado, que lançam erro se
+// chamados soltos (sem `this`) — foi o bug que derrubava o init na 0.2.0.
+globalThis.Hooks = class Hooks {
+  static #events = {};
+  static on(name, fn) {
+    (this.#events[name] ??= []).push(fn);
+    return this.#events[name].length;
+  }
+  static callAll(name, ...args) {
+    for (const fn of this.#events[name] ?? []) fn(...args);
+    return true;
+  }
+};
 
 await esbuild.build({
   entryPoints: [path.join(root, 'test', 'logic.test.ts')],

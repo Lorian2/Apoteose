@@ -1,6 +1,14 @@
 # Changelog — Constelação da Apoteose
 
-## [0.3.0] - a lançar
+## [0.3.0] - 2026-11-14
+
+### Correção importante (Foundry V14)
+- Na V14, os métodos estáticos de `Hooks` não podem ser chamados soltos. Uma chamada assim no início do módulo interrompia a inicialização: as configurações não eram registradas, o canvas do Editor não montava (as estrelas "sumiam" e o "Criar" não reagia), a migração automática não rodava, e a API e o menu de contexto não existiam. O mesmo defeito fazia falhar o aviso disparado depois de revelar, desbloquear ou conceder Pontos.
+- Cada etapa da inicialização agora roda isolada, e as configurações têm valor padrão se não puderem ser lidas.
+- Falhas ao montar ou desenhar o canvas e ao migrar constelações aparecem na tela, em vez de passarem em silêncio.
+- Ator duplicado ganha uma constelação própria (copiada) em vez de dividir o diário com o original.
+- O botão ★ não quebra quando a ficha do sistema reorganiza o cabeçalho.
+- Novo `api.diagnose()` para o console: abre cada constelação, testa o canvas e devolve um relatório.
 
 ### Visual
 - Céu em camadas: nebulosa suave em anil, ameixa e lavanda, três campos de estrelas distantes com paralaxe (o fundo se move menos que a constelação no pan e no zoom), estrelas que cintilam com raios de luz e, raramente, uma estrela cadente.

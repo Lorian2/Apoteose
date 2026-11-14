@@ -1,5 +1,6 @@
 import { MODULE_ID } from '../constants';
 import { BackgroundMusicPlayer } from '../rendering/background-music';
+import { readSetting } from './display-settings';
 
 const SFX_VOLUME_KEY = 'sfxVolume';
 const MUSIC_VOLUME_KEY = 'musicVolume';
@@ -36,12 +37,12 @@ export function registerSoundSettings(): void {
 
 /** Lê o volume dos efeitos configurado, já convertido pra escala 0–1 do AudioHelper. */
 export function getSfxVolume(): number {
-  const raw = (game.settings?.get(MODULE_ID, SFX_VOLUME_KEY) as number | undefined) ?? 80;
+  const raw = readSetting(SFX_VOLUME_KEY, 80);
   return raw / 100;
 }
 
 /** Lê o volume da música configurado, já convertido pra escala 0–1 do AudioHelper. */
 export function getMusicVolume(): number {
-  const raw = (game.settings?.get(MODULE_ID, MUSIC_VOLUME_KEY) as number | undefined) ?? 50;
+  const raw = readSetting(MUSIC_VOLUME_KEY, 50);
   return raw / 100;
 }

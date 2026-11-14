@@ -22,5 +22,18 @@ export function registerDisplaySettings(): void {
 }
 
 export function isSkyAnimated(): boolean {
-  return (game.settings?.get(MODULE_ID, ANIMATED_SKY_KEY) as boolean | undefined) ?? true;
+  return readSetting(ANIMATED_SKY_KEY, true);
+}
+
+/**
+ * Lê uma configuração do módulo sem lançar erro: se ela não estiver
+ * registrada (init interrompido por outra falha), usa o padrão. Uma
+ * preferência de exibição nunca pode impedir a janela de abrir.
+ */
+export function readSetting<T>(key: string, fallback: T): T {
+  try {
+    return ((game.settings?.get as (scope: string, key: string) => unknown)?.call(game.settings, MODULE_ID, key) as T | undefined) ?? fallback;
+  } catch {
+    return fallback;
+  }
 }

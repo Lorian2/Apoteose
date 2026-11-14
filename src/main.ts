@@ -7,10 +7,19 @@ import { diagnose } from './services/diagnostics';
 
 const service = new ConstellationService();
 
+/** Cada etapa do init roda isolada: uma falha não pode derrubar as outras. */
+function step(name: string, run: () => void): void {
+  try {
+    run();
+  } catch (error) {
+    console.error(`${MODULE_ID} | Falha ao inicializar (${name}):`, error);
+  }
+}
+
 Hooks.once('init', () => {
-  registerHooks();
-  registerSoundSettings();
-  registerDisplaySettings();
+  step('configurações de som', registerSoundSettings);
+  step('configurações de exibição', registerDisplaySettings);
+  step('hooks e botões', registerHooks);
 
   // API pública (API Interna, seção 8): o subconjunto seguro para macros e
   // outros módulos. Todas as escritas exigem Mestre.

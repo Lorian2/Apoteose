@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { computeNodeStatuses } from '../src/utils/node-status';
 import { derivePlayerState, migrateDefinition } from '../src/data/constellation-repository';
 import { ConstellationService } from '../src/services/constellation-service';
+import { callModuleHook, onUntypedHook } from '../src/utils/hooks';
 import type { ConstellationRepository } from '../src/data/constellation-repository';
 import type { PermissionGate } from '../src/services/permission-gate';
 import type { AspectNode, ConstellationDefinition } from '../src/types/constellation';
@@ -200,6 +201,13 @@ test('serviço: desbloqueio respeita exclusão, pré-requisito e pontos', async 
 
   await service.removeNode('actor', 'A');
   assert.equal(stored.exclusions.length, 0, 'remover um nó leva as exclusões dele junto');
+});
+
+test('hooks do módulo funcionam com o Hooks da V14 (sem chamada solta)', () => {
+  const received: unknown[] = [];
+  onUntypedHook('constelacaoApoteose.pointGranted', ((...args: unknown[]) => received.push(args)) as never);
+  callModuleHook('constelacaoApoteose.pointGranted', 'ator', 2);
+  assert.deepEqual(received, [['ator', 2]]);
 });
 
 for (const [name, fn] of tests) {
