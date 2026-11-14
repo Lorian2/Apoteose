@@ -25,8 +25,36 @@
       <pre id="log"></pre>
     </aside>
   </div>
+  <!-- Globais que a página do Foundry define antes do foundry.mjs (modo ?foundry) -->
+  <script>const SIGNED_EULA = true; const ROUTE_PREFIX = ''; const MESSAGES = null;</script>
   <!-- PIXI 7.4.3, a mesma versão do Foundry 14.364 -->
   <script src="__PIXI_URL__"></script>
-  <script type="module" src="/test/.out/preview.js"></script>
+  <script type="module">
+    if (new URLSearchParams(location.search).has('foundry')) {
+      // Mesma sequência de scripts da página do Foundry (o PIXI já veio acima).
+      const scripts = ['jquery.min.js', 'handlebars.min.js', 'handlebars-intl.min.js', 'particle-emitter.min.js',
+        'pixi-graphics-smooth.js', 'clipper/clipper.js', 'earcut-edges/earcut-edges.js', 'showdown.js', 'spark-md5.min.js'];
+      for (const name of scripts) {
+        await new Promise((resolve) => {
+          const script = document.createElement('script');
+          script.src = `/scripts/${name}`;
+          script.onload = script.onerror = resolve;
+          document.head.appendChild(script);
+        });
+      }
+      try { await import('/scripts/foundry.mjs'); } catch (error) { console.warn('foundry.mjs:', error); }
+      // Como o canvas da cena faz ao inicializar: troca o plugin "batch" do
+      // PIXI pelos do Foundry, que passam a valer para todo renderizador.
+      if (new URLSearchParams(location.search).has('plugins')) {
+        globalThis.canvas = { performance: { mode: 2 } };
+        const shaders = foundry.canvas.rendering.shaders;
+        shaders.BaseSamplerShader.registerPlugin({ force: true });
+        shaders.OccludableSamplerShader.registerPlugin();
+        shaders.DepthSamplerShader.registerPlugin();
+        PIXI.extensions.remove(PIXI.AccessibilityManager);
+      }
+    }
+    await import('/test/.out/preview.js');
+  </script>
 </body>
 </html>

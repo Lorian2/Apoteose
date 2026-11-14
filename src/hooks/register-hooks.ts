@@ -77,8 +77,16 @@ export function registerHooks(): void {
     if (!game.user?.isActiveGM) return;
     void service
       .migrateOutdatedPlayerStates()
-      .then((count) => {
-        if (count) console.log(`${MODULE_ID} | ${count} constelação(ões) atualizada(s) para o schema atual.`);
+      .then(({ migrated, failed }) => {
+        if (migrated.length) console.log(`${MODULE_ID} | Constelações atualizadas: ${migrated.join(', ')}`);
+        for (const { name, error } of failed) console.error(`${MODULE_ID} | Falha ao migrar a constelação de ${name}:`, error);
+        if (failed.length) {
+          ui.notifications?.error(
+            `Constelação da Apoteose: não foi possível atualizar ${failed.map((entry) => entry.name).join(', ')}. ` +
+              'Os dados continuam salvos; veja o console (F12).',
+            { permanent: true },
+          );
+        }
       })
       .catch((error) => console.error(`${MODULE_ID} | Falha ao migrar constelações:`, error));
   });
@@ -109,6 +117,9 @@ function addConstellationHeaderButton(application: unknown): void {
   });
 
   // Antes dos controles padrão (menu ⋮ e fechar), para ficar à vista.
-  const firstControl = header.querySelector('[data-action="toggleControls"], [data-action="close"]');
-  header.insertBefore(button, firstControl);
+  // Fichas de sistema podem reorganizar o cabeçalho: só usa a referência se
+  // ela for filha direta, senão insertBefore lança erro e o botão some.
+  const firstControl = header.querySelector(':scope > [data-action="toggleControls"], :scope > [data-action="close"]');
+  if (firstControl) header.insertBefore(button, firstControl);
+  else header.appendChild(button);
 }

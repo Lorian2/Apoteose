@@ -5,6 +5,7 @@ import { BackgroundMusicPlayer } from '../rendering/background-music';
 import { computeNodeStatuses } from '../utils/node-status';
 import { plainTextToHTML } from '../utils/html';
 import { playMediaSound } from '../utils/sound';
+import { reportFailure } from '../utils/report';
 import { isSkyAnimated } from '../services/display-settings';
 import type { NodeStatus, PlayerConstellationState, PlayerVisibleNode } from '../types/constellation';
 
@@ -111,7 +112,11 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
 
   protected override async _onFirstRender(context: object, options: object): Promise<void> {
     await super._onFirstRender(context, options);
-    this.#mountCanvas();
+    try {
+      this.#mountCanvas();
+    } catch (error) {
+      reportFailure('o canvas não pôde ser criado', error);
+    }
     this.#actorUpdateHook = Hooks.on('updateActor', (actor: Actor, changes: object) => {
       if (actor.id !== this.#actorId) return;
       if (!foundry.utils.hasProperty(changes, `flags.${MODULE_ID}.playerState`)) return;
@@ -152,7 +157,7 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
       subtitle: node.subtitle ?? '',
       quote: node.quote ?? '',
       description,
-      image: node.media.image ?? '',
+      image: node.media?.image ?? '',
       categoryLabel: category?.label ?? '',
       categoryColor: category?.color ?? '',
       rarityLabel: rarity?.label ?? '',
@@ -166,7 +171,7 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
 
   #mountCanvas(): void {
     const container = this.element.querySelector<HTMLElement>('[data-canvas-container]');
-    if (!container) return;
+    if (!container) throw new Error('área do canvas não encontrada na janela');
     this.#canvas = new NebulaCanvas(container, { onNodeSelected: (nodeId) => this.#handleNodeSelected(nodeId) }, {
       editable: false,
       animated: isSkyAnimated(),
@@ -178,26 +183,30 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
     const state = this.#state;
     if (!this.#canvas || !state) return;
     const statuses = this.#statuses(state);
-    this.#canvas.render(
-      state.nodes.map((node) => ({
-        id: node.id,
-        name: node.name,
-        position: node.position,
-        color: node.color,
-        icon: node.media.icon,
-        rarityId: node.rarityId,
-        revealed: true,
-        status: statuses.get(node.id) ?? 'available',
-      })),
-      state.connections,
-      state.rarities,
-    );
-    this.#canvas.setBackground(state.background);
+    try {
+      this.#canvas.render(
+        state.nodes.map((node) => ({
+          id: node.id,
+          name: node.name,
+          position: node.position,
+          color: node.color,
+          icon: node.media?.icon,
+          rarityId: node.rarityId,
+          revealed: true,
+          status: statuses.get(node.id) ?? 'available',
+        })),
+        state.connections,
+        state.rarities,
+      );
+      this.#canvas.setBackground(state.background);
+    } catch (error) {
+      reportFailure('não foi possível desenhar a constelação', error);
+    }
   }
 
   #handleNodeSelected(nodeId: string | null): void {
     this.#selectedNodeId = nodeId;
-    if (nodeId) playMediaSound(this.#state?.nodes.find((node) => node.id === nodeId)?.media.soundSelect);
+    if (nodeId) playMediaSound(this.#state?.nodes.find((node) => node.id === nodeId)?.media?.soundSelect);
     void this.render({ parts: ['panel'] });
   }
 
@@ -207,8 +216,8 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
     const previous = new Map((this.#state?.nodes ?? []).map((node) => [node.id, node]));
     for (const node of next.nodes) {
       const before = previous.get(node.id);
-      if (!before) playMediaSound(node.media.soundReveal);
-      else if (!before.unlocked && node.unlocked) playMediaSound(node.media.soundUnlock);
+      if (!before) playMediaSound(node.media?.soundReveal);
+      else if (!before.unlocked && node.unlocked) playMediaSound(node.media?.soundUnlock);
     }
     this.#state = next;
     if (this.#selectedNodeId && !next.nodes.some((node) => node.id === this.#selectedNodeId)) {

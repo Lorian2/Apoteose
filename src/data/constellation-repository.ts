@@ -118,11 +118,11 @@ export function derivePlayerState(definition: ConstellationDefinition): PlayerCo
     description: node.description,
     quote: node.quote,
     media: {
-      icon: node.media.icon,
-      image: node.media.image,
-      soundReveal: node.media.soundReveal,
-      soundUnlock: node.media.soundUnlock,
-      soundSelect: node.media.soundSelect,
+      icon: node.media?.icon,
+      image: node.media?.image,
+      soundReveal: node.media?.soundReveal,
+      soundUnlock: node.media?.soundUnlock,
+      soundSelect: node.media?.soundSelect,
     },
     color: node.color,
     categoryId: node.categoryId,
@@ -168,6 +168,16 @@ export class ConstellationRepository {
     const journal = await this.#getOrCreateMasterJournal(actor);
 
     const raw = journal.getFlag(MODULE_ID, FLAG_MASTER_DEFINITION);
+
+    // Ator duplicado: a cópia herda as flags do original e passaria a dividir
+    // o mesmo diário. Ela ganha uma constelação própria, copiada da original.
+    if (raw?.actorId && raw.actorId !== actorId) {
+      const copy = { ...foundry.utils.deepClone(migrateDefinition(raw)), actorId };
+      const target = game.actors?.get(raw.actorId) ? await this.#createMasterJournal(actor) : journal;
+      await this.#write(actor, target, copy);
+      return foundry.utils.deepClone(copy);
+    }
+
     if (raw) {
       const migrated = migrateDefinition(raw);
       if (migrated !== raw) {
@@ -248,7 +258,10 @@ export class ConstellationRepository {
     if (existing) {
       return existing;
     }
+    return this.#createMasterJournal(actor);
+  }
 
+  async #createMasterJournal(actor: Actor): Promise<JournalEntry> {
     const journal = await JournalEntry.create({
       name: `[Constelação da Apoteose — Mestre] ${actor.name}`,
       // Permissão None para jogadores: o servidor nunca transmite este

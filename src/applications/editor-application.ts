@@ -7,6 +7,7 @@ import { ConstellationService } from '../services/constellation-service';
 import { computeNodeStatuses, exclusivePartners } from '../utils/node-status';
 import { escapeHTML } from '../utils/html';
 import { playMediaSound } from '../utils/sound';
+import { reportFailure } from '../utils/report';
 import { isSkyAnimated } from '../services/display-settings';
 import type { AspectNode, ConstellationDefinition, NodeStatus, Position } from '../types/constellation';
 
@@ -229,7 +230,11 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
 
   protected override async _onFirstRender(context: object, options: object): Promise<void> {
     await super._onFirstRender(context, options);
-    this.#mountCanvas();
+    try {
+      this.#mountCanvas();
+    } catch (error) {
+      reportFailure('o canvas não pôde ser criado', error);
+    }
 
     // Delegação no elemento raiz: sobrevive aos re-renders parciais.
     this.element.addEventListener('change', (event) => {
@@ -327,7 +332,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       await this.#run(async () => {
         if (input.checked) {
           await this.#service.revealNode(this.#actorId, nodeId);
-          playMediaSound(node.media.soundReveal);
+          playMediaSound(node.media?.soundReveal);
         } else {
           await this.#service.hideNode(this.#actorId, nodeId);
         }
@@ -336,7 +341,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       await this.#run(async () => {
         if (input.checked) {
           await this.#service.unlockNode(this.#actorId, nodeId);
-          playMediaSound(node.media.soundUnlock);
+          playMediaSound(node.media?.soundUnlock);
         } else {
           await this.#service.lockNode(this.#actorId, nodeId);
         }
@@ -385,7 +390,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
 
   #mountCanvas(): void {
     const container = this.element.querySelector<HTMLElement>('[data-canvas-container]');
-    if (!container) return;
+    if (!container) throw new Error('área do canvas não encontrada na janela');
 
     // Clicar no canvas dá foco a ele: os atalhos (Del, Ctrl+Z…) passam a
     // valer aqui, e `data-keyboard-focus` impede que o Foundry os use no
@@ -414,29 +419,33 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
     if (!this.#canvas || !definition) return;
     const statuses = computeNodeStatuses(definition.nodes, definition.connections, definition.exclusions);
 
-    this.#canvas.render(
-      definition.nodes.map((node) => ({
-        id: node.id,
-        name: node.name,
-        position: node.position,
-        color: node.color,
-        icon: node.media.icon,
-        rarityId: node.rarityId,
-        revealed: node.visibility === 'revealed',
-        status: statuses.get(node.id) ?? 'available',
-      })),
-      definition.connections,
-      definition.rarities,
-      definition.exclusions,
-    );
-    this.#canvas.setBackground(definition.background);
+    try {
+      this.#canvas.render(
+        definition.nodes.map((node) => ({
+          id: node.id,
+          name: node.name,
+          position: node.position,
+          color: node.color,
+          icon: node.media?.icon,
+          rarityId: node.rarityId,
+          revealed: node.visibility === 'revealed',
+          status: statuses.get(node.id) ?? 'available',
+        })),
+        definition.connections,
+        definition.rarities,
+        definition.exclusions,
+      );
+      this.#canvas.setBackground(definition.background);
+    } catch (error) {
+      reportFailure('não foi possível desenhar a constelação', error);
+    }
   }
 
   #handleNodeSelected(nodeId: string | null): void {
     this.#selectedNodeId = nodeId;
     this.#selectedConnectionId = null;
     if (nodeId) {
-      playMediaSound(this.#definition().nodes.find((node) => node.id === nodeId)?.media.soundSelect);
+      playMediaSound(this.#definition().nodes.find((node) => node.id === nodeId)?.media?.soundSelect);
     }
     void this.render({ parts: ['panel'] });
   }

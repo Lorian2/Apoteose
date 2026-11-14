@@ -3,6 +3,7 @@ import { openConstellation, openObservatory, registerHooks } from './hooks/regis
 import { registerSoundSettings } from './services/sound-settings';
 import { registerDisplaySettings } from './services/display-settings';
 import { ConstellationService } from './services/constellation-service';
+import { diagnose } from './services/diagnostics';
 
 const service = new ConstellationService();
 
@@ -25,6 +26,8 @@ Hooks.once('init', () => {
       open: openConstellation,
       /** Visão do jogador (o Mestre também pode usar, para conferir o que o jogador vê). */
       openObservatory,
+      /** Relatório para o console quando algo não aparece (veja services/diagnostics.ts). */
+      diagnose: () => diagnose(service),
       /** Acesso completo ao serviço — não faz parte do contrato estável. */
       _service: service,
     };

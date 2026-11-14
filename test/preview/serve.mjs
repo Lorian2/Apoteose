@@ -39,6 +39,16 @@ http
       return;
     }
 
+    // Com FOUNDRY_URL definido, /scripts/* vem do servidor Foundry: abrir
+    // /?foundry carrega o foundry.mjs (com os ajustes que ele faz no PIXI)
+    // antes da pré-visualização, para reproduzir erros que só dão lá.
+    if (url.pathname.startsWith('/scripts/') && process.env.FOUNDRY_URL) {
+      const upstream = await fetch(new URL(url.pathname, process.env.FOUNDRY_URL));
+      response.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') ?? 'text/javascript' });
+      response.end(Buffer.from(await upstream.arrayBuffer()));
+      return;
+    }
+
     const relative = url.pathname === '/' ? 'test/preview/index.html' : decodeURIComponent(url.pathname.slice(1));
     const file = path.resolve(root, relative);
     if (!file.startsWith(root)) {

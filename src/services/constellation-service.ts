@@ -75,19 +75,25 @@ export class ConstellationService {
    * Regrava o Estado do Jogador de toda constelação gravada num schema
    * antigo. Chamado no `ready` pelo Mestre ativo.
    */
-  async migrateOutdatedPlayerStates(): Promise<number> {
+  async migrateOutdatedPlayerStates(): Promise<{ migrated: string[]; failed: { name: string; error: unknown }[] }> {
     this.#permissions.assertGM();
-    let count = 0;
+    const migrated: string[] = [];
+    const failed: { name: string; error: unknown }[] = [];
     for (const actor of this.#repository.actorsWithConstellation()) {
       if (!this.#repository.isPlayerStateOutdated(actor) || !actor.id) continue;
       const actorId = actor.id;
-      await enqueue(actorId, async () => {
-        const definition = await this.#repository.getMasterDefinition(actorId);
-        await this.#repository.saveMasterDefinition(actorId, definition);
-      });
-      count += 1;
+      // Uma constelação com problema não pode impedir a migração das outras.
+      try {
+        await enqueue(actorId, async () => {
+          const definition = await this.#repository.getMasterDefinition(actorId);
+          await this.#repository.saveMasterDefinition(actorId, definition);
+        });
+        migrated.push(actor.name ?? actorId);
+      } catch (error) {
+        failed.push({ name: actor.name ?? actorId, error });
+      }
     }
-    return count;
+    return { migrated, failed };
   }
 
   // ---------------------------------------------------------------------
