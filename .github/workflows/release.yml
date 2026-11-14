@@ -1,0 +1,56 @@
+# Cria uma release instalável no Foundry a cada tag vX.Y.Z:
+#   - module.json (manifesto, sempre em releases/latest/download/module.json)
+#   - constelacao-da-apoteose.zip (download da versão, com o dist/ já compilado)
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci --no-audit --no-fund
+
+      - name: Testes e tipos
+        run: |
+          npm test
+          npm run typecheck
+
+      - name: Preparar manifesto e notas
+        run: node tools/release-prep.mjs "${GITHUB_REF_NAME#v}" "${GITHUB_REPOSITORY}"
+
+      - name: Compilar
+        run: npm run build
+
+      - name: Empacotar o módulo
+        run: |
+          mkdir -p package
+          cp -r module.json dist styles templates lang README.md CHANGELOG.md package/
+          [ -d assets ] && cp -r assets package/ || true
+          rm -f package/dist/*.map
+          cd package
+          zip -r ../constelacao-da-apoteose.zip .
+          cd ..
+          unzip -l constelacao-da-apoteose.zip | tail -n 3
+
+      - name: Publicar release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Constelação da Apoteose ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            module.json
+            constelacao-da-apoteose.zip

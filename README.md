@@ -4,6 +4,16 @@ Módulo de evolução narrativa para **Foundry VTT**: cada personagem constrói,
 
 Compatível com Foundry **V13**, verificado na **V14** (14.364). Funciona com qualquer sistema: o módulo registra a lenda, e os efeitos mecânicos ficam na ficha do sistema.
 
+## Instalação
+
+No Foundry, abra **Módulos de Complemento → Instalar Módulo** e cole no campo **URL do Manifesto**:
+
+```
+https://github.com/Lorian2/Apoteose/releases/latest/download/module.json
+```
+
+Depois ative o módulo no mundo. O Foundry avisa e atualiza quando sair uma versão nova. Instalação manual: baixe o `constelacao-da-apoteose.zip` da [última release](https://github.com/Lorian2/Apoteose/releases/latest) e extraia em `Data/modules/constelacao-da-apoteose/`.
+
 ## Recursos
 
 - **Editor do Mestre:** canvas com zoom e pan, criar e mover estrelas, ligar caminhos com sentido, exclusão mútua entre Aspectos rivais, raridades e categorias editáveis, mídia por Aspecto (ícone, imagem, sons), fundo e música da constelação, desfazer/refazer e atalhos de teclado.
@@ -40,6 +50,12 @@ TypeScript + esbuild. O Foundry carrega `dist/main.js`, que é gerado pelo build
 | `npm run typecheck` | checagem de tipos |
 | `npm test` | testes da lógica (situação dos nós, migração, Estado do Jogador, fila de escrita) |
 | `npm run preview` | canvas fora do Foundry em http://127.0.0.1:5178/ (PIXI 7.4.3 por CDN, ou o do seu servidor via `PIXI_URL`) |
+
+### Lançar uma versão
+
+1. Escreva a seção `## [X.Y.Z] - AAAA-MM-DD` no `CHANGELOG.md`.
+2. Crie e envie a tag `vX.Y.Z` (no repositório de desenvolvimento: `.\tools\release-apoteose.ps1 X.Y.Z`).
+3. A Action [Release](.github/workflows/release.yml) roda testes e tipos, compila, grava versão e links no `module.json` e publica o `constelacao-da-apoteose.zip`. O manifesto `releases/latest/download/module.json` passa a apontar para a versão nova.
 
 Documentos de design em `docs/`, guia de customização em `CUSTOMIZACAO.md`, histórico em `CHANGELOG.md`.
 
