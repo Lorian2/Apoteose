@@ -9,11 +9,13 @@
     "watch": "node esbuild.config.mjs --watch",
     "typecheck": "tsc --noEmit",
     "test": "node test/run.mjs",
-    "preview": "node test/preview/serve.mjs"
+    "preview": "node test/preview/serve.mjs",
+    "smoke": "node test/smoke.mjs"
   },
   "devDependencies": {
     "@league-of-foundry-developers/foundry-vtt-types": "^13.346.0-beta.20250812191140",
     "esbuild": "^0.28.1",
+    "playwright-core": "^1.65.1",
     "typescript": "^5.9.3"
   },
   "keywords": [],

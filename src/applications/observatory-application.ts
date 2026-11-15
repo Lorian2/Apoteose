@@ -4,7 +4,9 @@ import { NebulaCanvas } from '../rendering/nebula-canvas';
 import { BackgroundMusicPlayer } from '../rendering/background-music';
 import { computeNodeStatuses } from '../utils/node-status';
 import { plainTextToHTML } from '../utils/html';
+import { buildHistoryView } from '../utils/history-view';
 import { playMediaSound } from '../utils/sound';
+import { t } from '../utils/i18n';
 import { reportFailure } from '../utils/report';
 import { isSkyAnimated } from '../services/display-settings';
 import type { NodeStatus, PlayerConstellationState, PlayerVisibleNode } from '../types/constellation';
@@ -80,7 +82,7 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
   }
 
   override get title(): string {
-    const base = game.i18n?.localize('CONSTELACAO_APOTEOSE.ObservatoryTitle') ?? 'Constelação';
+    const base = t('CONSTELACAO_APOTEOSE.ObservatoryTitle', 'Constelação');
     const name = game.actors?.get(this.#actorId)?.name;
     return name ? `${base}: ${name}` : base;
   }
@@ -102,10 +104,7 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
       unlockedCount: state.nodes.filter((node) => node.unlocked).length,
       unspentPoints: state.unspentPoints,
       available,
-      history: [...state.history].reverse().map((entry) => ({
-        ...entry,
-        nodeName: state.nodes.find((node) => node.id === entry.nodeId)?.name ?? '',
-      })),
+      history: buildHistoryView(state.history, (id) => state.nodes.find((node) => node.id === id)?.name ?? ''),
       selectedNode: selected ? await this.#toPanelViewModel(selected, state, statuses.get(selected.id)!) : null,
     };
   }
@@ -124,12 +123,35 @@ export class ObservatoryApplication extends foundry.applications.api.HandlebarsA
     });
   }
 
+  /** Remonta o canvas se um render completo trocar o elemento dele (ver o Editor). */
+  protected override async _onRender(context: object, options: object): Promise<void> {
+    await super._onRender(context, options);
+    const container = this.element.querySelector<HTMLElement>('[data-canvas-container]');
+    if (!container || (this.#canvas && container.querySelector('canvas'))) return;
+    this.#canvas?.destroy();
+    this.#canvas = undefined;
+    try {
+      this.#mountCanvas();
+      (this.#canvas as NebulaCanvas | undefined)?.setSelectedNode(this.#selectedNodeId);
+    } catch (error) {
+      reportFailure('o canvas não pôde ser recriado', error);
+    }
+  }
+
   protected override _onClose(options: object): void {
     if (this.#actorUpdateHook !== undefined) Hooks.off('updateActor', this.#actorUpdateHook);
     this.#canvas?.destroy();
     this.#canvas = undefined;
     this.#music.stop();
     super._onClose(options);
+  }
+
+  /** Seleciona e centraliza um Aspecto (usado pelo clique no aviso de conquista). */
+  showNode(nodeId: string): void {
+    if (!this.#state?.nodes.some((node) => node.id === nodeId)) return;
+    this.#canvas?.setSelectedNode(nodeId);
+    this.#canvas?.focusNode(nodeId);
+    this.#handleNodeSelected(nodeId);
   }
 
   /** Estados gravados antes do schema v3 não trazem `status`: calcula com o que há. */

@@ -19,6 +19,15 @@ export function registerDisplaySettings(): void {
     default: !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches,
     onChange: (value: unknown) => setAllCanvasesAnimated(!!value),
   });
+
+  game.settings?.register(MODULE_ID, 'announceProgress', {
+    name: 'Avisar conquistas da constelação',
+    hint: 'Mostra um cartão discreto no alto da tela quando o Mestre revela ou desbloqueia um Aspecto do seu personagem.',
+    scope: 'client',
+    config: true,
+    type: Boolean,
+    default: true,
+  });
 }
 
 export function isSkyAnimated(): boolean {

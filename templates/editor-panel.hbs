@@ -190,10 +190,13 @@
     {{#each history}}
     <li>
       <div class="constelacao-timeline-meta">
-        {{this.date}}{{#if this.nodeName}} — {{this.nodeName}}{{/if}}
-        <button type="button" data-action="removeHistoryEntry" data-index="{{this.index}}" data-tooltip="Apagar entrada"><i class="fa-solid fa-xmark"></i></button>
+        <span>{{this.date}}{{#if this.aspect}} — {{this.aspect}}{{/if}}</span>
+        <span class="constelacao-timeline-actions">
+          <button type="button" data-action="editHistoryEntry" data-index="{{this.index}}" data-tooltip="{{#if this.untitled}}Dar um título de capítulo{{else}}Editar título e data{{/if}}"><i class="fa-solid fa-pen"></i></button>
+          <button type="button" data-action="removeHistoryEntry" data-index="{{this.index}}" data-tooltip="Apagar entrada"><i class="fa-solid fa-xmark"></i></button>
+        </span>
       </div>
-      <div>{{this.chapterTitle}}</div>
+      <div class="{{#if this.untitled}}constelacao-timeline-untitled{{/if}}">{{this.title}}</div>
     </li>
     {{/each}}
   </ul>

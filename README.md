@@ -19,7 +19,9 @@ Depois ative o módulo no mundo. O Foundry avisa e atualiza quando sair uma vers
 - **Editor do Mestre:** canvas com zoom e pan, criar e mover estrelas, ligar caminhos com sentido, exclusão mútua entre Aspectos rivais, raridades e categorias editáveis, mídia por Aspecto (ícone, imagem, sons), fundo e música da constelação, desfazer/refazer e atalhos de teclado.
 - **Observatório do jogador:** só o que foi revelado, com a situação de cada Aspecto (desbloqueado, disponível, aguardando um anterior, caminho fechado), descrição formatada e animações quando o Mestre revela ou desbloqueia algo.
 - **Mistério ativo:** a definição completa fica num diário oculto; o jogador recebe apenas o que pode ver.
-- **Linha do Tempo da Jornada:** capítulos da lenda registrados pelo Mestre.
+- **Linha do Tempo da Jornada:** cada desbloqueio é registrado sozinho (com a data do calendário do Aethelgard, se ativo) e o Mestre dá título aos capítulos.
+- **Aviso de conquista:** quando o Mestre revela ou desbloqueia um Aspecto, o dono do personagem vê um cartão discreto na tela; clicar abre o Observatório naquele Aspecto.
+- **Organizado:** os diários ocultos ficam numa pasta própria, não soltos na barra lateral.
 
 ## Como usar
 
@@ -49,6 +51,7 @@ TypeScript + esbuild. O Foundry carrega `dist/main.js`, que é gerado pelo build
 | `npm run build` / `npm run watch` | gera `dist/main.js` |
 | `npm run typecheck` | checagem de tipos |
 | `npm test` | testes da lógica (situação dos nós, migração, Estado do Jogador, fila de escrita) |
+| `npm run smoke` | teste de ponta a ponta no Foundry de verdade (navegador Edge/Chrome; exige `FOUNDRY_URL`, `FOUNDRY_USER`, `FOUNDRY_PASSWORD` de um Mestre de teste, que não pode estar conectado em outro lugar) |
 | `npm run preview` | canvas fora do Foundry em http://127.0.0.1:5178/ (PIXI 7.4.3 por CDN, ou o do seu servidor via `PIXI_URL`) |
 
 ### Lançar uma versão

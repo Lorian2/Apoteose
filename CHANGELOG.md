@@ -1,5 +1,24 @@
 # Changelog — Constelação da Apoteose
 
+## [0.4.0] - a lançar
+
+### Na mesa
+- **Aviso de conquista:** quando o Mestre revela ou desbloqueia um Aspecto, o dono do personagem vê um cartão discreto no alto da tela, com o nome, a citação e a cor da raridade. Clicar abre o Observatório já naquele Aspecto. Só o dono recebe (nada vai para o chat, porque a constelação é solitária); o Mestre não recebe o próprio aviso. Passar o mouse pausa a contagem. Dá para desligar em "Avisar conquistas da constelação".
+- **Linha do Tempo automática:** desbloquear um Aspecto registra sozinho "Desbloqueou X", com a data do calendário da campanha quando o Aethelgard está ativo (ex.: "12 Novilúnio, 362") e a data real caso contrário. O Mestre pode dar um título de capítulo à entrada (✎), que passa a aparecer no lugar do texto automático. Desfazer o desbloqueio apaga o registro. O jogador nunca recebe o registro automático de um Aspecto que ainda não vê.
+
+### Organização
+- Os diários ocultos de cada constelação vão para a pasta "Constelação da Apoteose (Mestre)", em vez de ficarem soltos na barra lateral. O Mestre ativo arruma os existentes ao entrar no mundo; diário que você já guardou em outra pasta não é mexido. Diários cujo Ator foi apagado vão para a subpasta "Sem Ator", e nunca são apagados.
+
+### Qualidade
+- `npm run smoke`: abre um navegador de verdade, entra no Foundry como Mestre e roda `api.selfTest()`, que cria um Ator temporário, exercita o Editor (inclusive o clique em "Criar"), o Observatório, o histórico, as pastas e os avisos, e apaga tudo no fim. Variáveis: `FOUNDRY_URL`, `FOUNDRY_USER`, `FOUNDRY_PASSWORD`.
+- `api.selfTest()` também roda pelo console (F12). Sem quadros desenhados (janela oculta), a etapa do clique é marcada como pulada em vez de falhar.
+
+### Correções
+- Clicar na ★ da ficha com o Editor já aberto apagava o canvas da janela. Agora só traz a janela à frente, e as duas janelas remontam o canvas sozinhas se algo re-renderizar tudo.
+- O título da janela e os tooltips apareciam como `CONSTELACAO_APOTEOSE.EditorTitle` em clientes sem tradução para o idioma deles. Há texto reserva em português e o idioma `en` aponta para o mesmo arquivo.
+- O "enquadrar tudo" cortava o nome das estrelas das pontas.
+- O aviso de conquista não cobre o astrolábio do Aethelgard.
+
 ## [0.3.0] - 2026-11-14
 
 ### Correção importante (Foundry V14)

@@ -107,6 +107,8 @@ lockNode(actorId: string, nodeId: string): Promise<void>      // desfazer desblo
 
 ```typescript
 removeHistoryEntry(actorId: string, index: number): Promise<void>
+updateHistoryEntry(actorId: string, index: number, changes: { chapterTitle?: string; date?: string }): Promise<void>   // v1.4
+organizeJournals(only?: JournalEntry[]): Promise<{ moved: number; orphans: string[] }>                                // v1.4: arruma os diários ocultos na pasta do módulo
 restoreDefinition(actorId: string, snapshot: ConstellationDefinition): Promise<void>  // Desfazer/Refazer do Editor
 migrateOutdatedPlayerStates(): Promise<number>                                         // chamado no `ready` pelo Mestre ativo
 ```
@@ -138,7 +140,9 @@ game.modules.get('constelacao-da-apoteose').api = {
   revealNode,
   getPlayerState,
   open,             // v1.3: (actorId) → Editor para o Mestre, Observatório para o dono do Ator
-  openObservatory,  // v1.3: (actorId) → visão do jogador (o Mestre também pode usar)
+  openObservatory,  // v1.3: (actorId, nodeId?) → visão do jogador (o Mestre também pode usar); com nodeId, já seleciona o Aspecto
+  diagnose,         // v1.4: relatório para o console (abre cada constelação, testa o canvas, lista diários órfãos)
+  selfTest,         // v1.4: teste de ponta a ponta como Mestre; cria um Ator temporário e apaga no fim (usado por `npm run smoke`)
 };
 ```
 

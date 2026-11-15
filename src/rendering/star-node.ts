@@ -135,6 +135,11 @@ export class StarNode {
     return this.#position;
   }
 
+  /** Metade da largura do nome desenhado (o enquadramento da câmera precisa dela para não cortar o texto). */
+  get labelHalfWidth(): number {
+    return Math.max(NODE_RADIUS, this.#label.width / 2);
+  }
+
   setPosition(position: Position): void {
     this.#position = { ...position };
     this.graphics.position.set(position.x, position.y);

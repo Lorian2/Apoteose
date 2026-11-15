@@ -5,6 +5,8 @@
 **Data:** 12/07/2026 (revisado em 13/07/2026, 25/07/2026 e 14/11/2026)
 **Status:** Aprovado — reflete o estado real do módulo (0.2.0)
 
+> **Changelog v1.4 (15/11/2026, módulo 0.4.0):** linha do tempo com registro automático e aviso de conquista para o dono do personagem (seção 12); diários ocultos organizados em pasta.
+>
 > **Changelog v1.3 (14/11/2026, módulo 0.2.0):**
 > - **Só o Mestre desbloqueia** (seções 6 e 7): o pedido de desbloqueio pelo Observatório saiu. O jogador vê o que está ao seu alcance e combina com o Mestre.
 > - **Exclusão mútua simétrica entre Aspectos** (seção 9), com propagação para o ramo inteiro.
@@ -229,6 +231,10 @@ O Observatório (visão do jogador) hoje já tem: fundo animado/ladrilhado infin
 ## 12. Linha do Tempo da Lenda
 
 Cada personagem mantém um registro cronológico de sua evolução (data, Aspecto relacionado — opcional —, e um "título de capítulo", como no exemplo do documento original: *"12/08/2026 — Luan despertou — 'O Último Bastião'"*). Este histórico pertence ao personagem e persiste independentemente de futuras edições da constelação em si.
+
+**Registro automático (v1.4):** desbloquear um Aspecto registra sozinho "Desbloqueou X" na linha do tempo, com a data do calendário da campanha (Aethelgard, quando ativo) ou a data real. O Mestre pode dar um título de capítulo à entrada depois, e desfazer o desbloqueio apaga o registro. O jogador nunca vê o registro automático de um Aspecto que ainda não enxerga.
+
+**Aviso de conquista (v1.4):** quando o Mestre revela ou desbloqueia um Aspecto, o dono do personagem vê um cartão discreto no alto da tela (nome, citação, cor da raridade); clicar abre o Observatório naquele Aspecto. É privado: nada vai para o chat, pois a constelação é solitária (pilar 3, "Mistério ativo").
 
 **Implementado (v1.2):** o Mestre registra uma entrada quando quiser, pelo Editor, escrevendo o título do capítulo e (opcionalmente) associando a um Aspecto específico — não precisa estar necessariamente ligado ao exato momento de um desbloqueio. A linha do tempo aparece, mais recente primeiro, tanto no Editor quanto no Observatório do jogador. Uma entrada associada a um Aspecto que o jogador ainda não teve revelado aparece pra ele sem o nome desse Aspecto — a data e o título do capítulo continuam visíveis, mas sem vazar qual Aspecto é.
 

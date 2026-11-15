@@ -8,6 +8,9 @@ import { computeNodeStatuses } from '../src/utils/node-status';
 import { derivePlayerState, migrateDefinition } from '../src/data/constellation-repository';
 import { ConstellationService } from '../src/services/constellation-service';
 import { callModuleHook, onUntypedHook } from '../src/utils/hooks';
+import { currentDateLabel, formatAethelgardDay } from '../src/utils/game-date';
+import { buildHistoryView } from '../src/utils/history-view';
+import { diffNodes, snapshotNodes } from '../src/utils/announce-diff';
 import type { ConstellationRepository } from '../src/data/constellation-repository';
 import type { PermissionGate } from '../src/services/permission-gate';
 import type { AspectNode, ConstellationDefinition } from '../src/types/constellation';
@@ -201,6 +204,95 @@ test('serviço: desbloqueio respeita exclusão, pré-requisito e pontos', async 
 
   await service.removeNode('actor', 'A');
   assert.equal(stored.exclusions.length, 0, 'remover um nó leva as exclusões dele junto');
+});
+
+test('histórico: desbloquear registra sozinho, desfazer apaga, título é editável', async () => {
+  const { nodes, connections, exclusions } = branching();
+  let stored = definition({ nodes, connections, exclusions, unspentPoints: 2 });
+  const repository = {
+    async getMasterDefinition() {
+      return structuredClone(stored);
+    },
+    async saveMasterDefinition(_actorId: string, next: ConstellationDefinition) {
+      stored = structuredClone(next);
+    },
+  } as unknown as ConstellationRepository;
+  const service = new ConstellationService(repository, { assertGM() {} } as PermissionGate);
+
+  await service.unlockNode('actor', 'A');
+  await service.unlockNode('actor', 'A2');
+  assert.deepEqual(
+    stored.history.map((entry) => [entry.kind, entry.nodeId, entry.nodeName]),
+    [['unlock', 'A', 'A'], ['unlock', 'A2', 'A2']],
+  );
+  assert.ok(stored.history[0].date, 'a entrada leva uma data');
+
+  await service.updateHistoryEntry('actor', 0, { chapterTitle: 'O Juramento' });
+  assert.equal(stored.history[0].chapterTitle, 'O Juramento');
+  assert.equal(stored.history[0].kind, 'unlock', 'editar o título mantém o tipo');
+
+  await service.lockNode('actor', 'A2');
+  assert.deepEqual(stored.history.map((entry) => entry.nodeId), ['A'], 'desfazer apaga só o registro de A2');
+});
+
+test('data do histórico: usa o calendário do Aethelgard quando disponível', () => {
+  assert.equal(formatAethelgardDay({ day: 11, monthName: 'Novilúnio', year: 362 }), '11 Novilúnio, 362');
+  assert.equal(formatAethelgardDay({ day: 11, monthName: 'Novilúnio', year: 362, era: 'EC' }), '11 Novilúnio, 362 EC');
+  assert.equal(formatAethelgardDay({ intercalary: true, festival: 'Noite Longa', monthName: 'x', year: 362 }), 'Noite Longa, 362');
+  // sem o módulo (ou com ele inativo) cai na data real
+  assert.match(currentDateLabel(), /\d/);
+  (globalThis as { game?: unknown }).game = {
+    modules: new Map([['aethelgard-calendar', { active: true, api: { engine: { describe: () => ({ day: 3, monthName: 'Ventos', year: 7 }) } } }]]),
+  };
+  assert.equal(currentDateLabel(), '3 Ventos, 7');
+  (globalThis as { game?: unknown }).game = {
+    modules: new Map([['aethelgard-calendar', { active: true, api: { engine: { describe: () => { throw new Error('falha'); } } } }]]),
+  };
+  assert.match(currentDateLabel(), /\d/, 'uma falha no calendário nunca impede o registro');
+  delete (globalThis as { game?: unknown }).game;
+});
+
+test('histórico do jogador: sem Aspecto oculto, sem nome guardado, título do Mestre preservado', () => {
+  const { nodes, connections } = branching();
+  nodes.find((n) => n.id === 'B')!.visibility = 'hidden';
+  const state = derivePlayerState(
+    definition({
+      nodes,
+      connections,
+      history: [
+        { date: 'd1', nodeId: 'A', nodeName: 'A', kind: 'unlock' },
+        { date: 'd2', nodeId: 'B', nodeName: 'B', kind: 'unlock' },
+        { date: 'd3', nodeId: 'B', nodeName: 'B', kind: 'unlock', chapterTitle: 'Pacto' },
+        { date: 'd4', nodeId: '', chapterTitle: 'Manual' },
+      ],
+    }),
+  );
+  assert.deepEqual(
+    state.history.map((entry) => [entry.date, entry.nodeId]),
+    [['d1', 'A'], ['d3', ''], ['d4', '']],
+    'o registro automático de um Aspecto oculto some; o que tem título perde o vínculo',
+  );
+  assert.ok(state.history.every((entry) => !('nodeName' in entry)));
+  const view = buildHistoryView(definition({ history: [{ date: 'd', nodeId: 'X', nodeName: 'Removido', kind: 'unlock' }] }).history, () => '');
+  assert.equal(view[0].title, 'Desbloqueou Removido', 'a Definição Mestra usa o nome guardado se o Aspecto sumiu');
+  assert.equal(view[0].untitled, true);
+});
+
+test('aviso de conquista: só o que realmente mudou para o jogador', () => {
+  const visible = (id: string, unlocked: boolean) =>
+    ({ id, name: id, unlocked, media: {}, rarityId: 'common', type: 'narrative', position: { x: 0, y: 0 } }) as never;
+  const before = snapshotNodes([visible('O', true), visible('A', false)]);
+
+  // sem mudança → nada
+  assert.deepEqual(diffNodes(before, [visible('O', true), visible('A', false)]), { unlocked: [], revealed: [] });
+
+  const events = diffNodes(before, [visible('O', true), visible('A', true), visible('B', false), visible('C', true)]);
+  assert.deepEqual(events.unlocked.map((n) => n.id), ['A', 'C'], 'A foi desbloqueado; C já surgiu desbloqueado');
+  assert.deepEqual(events.revealed.map((n) => n.id), ['B'], 'B só surgiu; C não conta duas vezes');
+
+  // desfazer um desbloqueio não avisa ninguém
+  const undone = diffNodes(snapshotNodes([visible('A', true)]), [visible('A', false)]);
+  assert.deepEqual(undone, { unlocked: [], revealed: [] });
 });
 
 test('hooks do módulo funcionam com o Hooks da V14 (sem chamada solta)', () => {

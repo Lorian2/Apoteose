@@ -332,9 +332,9 @@ export class NebulaCanvas {
     let maxX = -Infinity;
     let maxY = -Infinity;
     for (const star of this.#stars.values()) {
-      minX = Math.min(minX, star.position.x);
+      minX = Math.min(minX, star.position.x - star.labelHalfWidth);
       minY = Math.min(minY, star.position.y);
-      maxX = Math.max(maxX, star.position.x);
+      maxX = Math.max(maxX, star.position.x + star.labelHalfWidth);
       maxY = Math.max(maxY, star.position.y + NODE_RADIUS * 2); // espaço do nome
     }
     return { minX, minY, maxX, maxY };

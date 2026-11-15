@@ -6,7 +6,10 @@ import { BackgroundMusicPlayer } from '../rendering/background-music';
 import { ConstellationService } from '../services/constellation-service';
 import { computeNodeStatuses, exclusivePartners } from '../utils/node-status';
 import { escapeHTML } from '../utils/html';
+import { currentDateLabel } from '../utils/game-date';
+import { buildHistoryView } from '../utils/history-view';
 import { playMediaSound } from '../utils/sound';
+import { t } from '../utils/i18n';
 import { reportFailure } from '../utils/report';
 import { isSkyAnimated } from '../services/display-settings';
 import type { AspectNode, ConstellationDefinition, NodeStatus, Position } from '../types/constellation';
@@ -135,6 +138,10 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       logHistoryEntry: function (this: EditorApplication) {
         void this.#logHistoryEntry();
       },
+      editHistoryEntry: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
+        const index = Number(target.dataset.index);
+        if (Number.isInteger(index)) void this.#editHistoryEntry(index);
+      },
       removeHistoryEntry: function (this: EditorApplication, _event: PointerEvent, target: HTMLElement) {
         const index = Number(target.dataset.index);
         if (Number.isInteger(index)) void this.#run(() => this.#service.removeHistoryEntry(this.#actorId, index));
@@ -177,7 +184,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
   }
 
   override get title(): string {
-    const base = game.i18n?.localize('CONSTELACAO_APOTEOSE.EditorTitle') ?? 'Constelação da Apoteose — Editor';
+    const base = t('CONSTELACAO_APOTEOSE.EditorTitle', 'Constelação da Apoteose');
     const name = game.actors?.get(this.#actorId)?.name;
     return name ? `${base}: ${name}` : base;
   }
@@ -210,9 +217,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
       rarities: definition.rarities,
       background: definition.background ?? '',
       backgroundMusic: definition.backgroundMusic ?? '',
-      history: definition.history
-        .map((entry, index) => ({ ...entry, index, nodeName: entry.nodeId ? nodeName(entry.nodeId) : '' }))
-        .reverse(),
+      history: buildHistoryView(definition.history, nodeName),
       nodeTypes: Object.entries(ASPECT_TYPE_LABELS).map(([value, label]) => ({ value, label })),
       selectedNode: selectedNode
         ? this.#toPanelViewModel(selectedNode, definition, statuses.get(selectedNode.id) ?? 'available')
@@ -253,6 +258,25 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
         void this.#reload();
       },
     );
+  }
+
+  /**
+   * Um render completo (por exemplo `render({ force: true })` vindo de outro
+   * módulo) troca o elemento do canvas e deixa o PIXI antigo órfão. Se isso
+   * acontecer, monta o canvas de novo, mantendo a seleção.
+   */
+  protected override async _onRender(context: object, options: object): Promise<void> {
+    await super._onRender(context, options);
+    const container = this.element.querySelector<HTMLElement>('[data-canvas-container]');
+    if (!container || (this.#canvas && container.querySelector('canvas'))) return;
+    this.#canvas?.destroy();
+    this.#canvas = undefined;
+    try {
+      this.#mountCanvas();
+      (this.#canvas as NebulaCanvas | undefined)?.setSelectedNode(this.#selectedNodeId);
+    } catch (error) {
+      reportFailure('o canvas não pôde ser recriado', error);
+    }
   }
 
   protected override _onClose(options: object): void {
@@ -668,7 +692,7 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
         </div>
         <div class="form-group">
           <label>Data</label>
-          <input type="text" name="date" value="${escapeHTML(new Date().toLocaleDateString('pt-BR'))}">
+          <input type="text" name="date" value="${escapeHTML(currentDateLabel())}">
         </div>
         <div class="form-group">
           <label>Aspecto relacionado</label>
@@ -685,10 +709,35 @@ export class EditorApplication extends foundry.applications.api.HandlebarsApplic
     }
     await this.#run(() =>
       this.#service.addHistoryEntry(this.#actorId, {
-        date: String(data.date ?? '').trim() || new Date().toLocaleDateString('pt-BR'),
+        date: String(data.date ?? '').trim() || currentDateLabel(),
         nodeId: String(data.nodeId ?? ''),
         chapterTitle,
       }),
     );
   }
-}
+
+  /** Dá (ou muda) o título de capítulo de uma entrada, em especial dos registros automáticos. */
+  async #editHistoryEntry(index: number): Promise<void> {
+    const entry = this.#definition().history[index];
+    if (!entry) return;
+    const data = (await foundry.applications.api.DialogV2.input({
+      window: { title: 'Título do capítulo' },
+      content: `
+        <div class="form-group">
+          <label>Título do capítulo</label>
+          <input type="text" name="chapterTitle" value="${escapeHTML(entry.chapterTitle ?? '')}" placeholder="ex.: O Último Bastião" autofocus>
+        </div>
+        <div class="form-group">
+          <label>Data</label>
+          <input type="text" name="date" value="${escapeHTML(entry.date)}">
+        </div>`,
+      ok: { label: 'Salvar' },
+    })) as { chapterTitle?: string; date?: string } | null;
+    if (!data) return;
+    await this.#run(() =>
+      this.#service.updateHistoryEntry(this.#actorId, index, {
+        chapterTitle: String(data.chapterTitle ?? '').trim(),
+        date: String(data.date ?? '').trim() || entry.date,
+      }),
+    );
+  }}

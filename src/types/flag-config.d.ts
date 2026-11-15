@@ -15,6 +15,12 @@ declare global {
         unlockRequest?: unknown;
       };
     };
+    Folder: {
+      'constelacao-da-apoteose': {
+        /** Marca as pastas criadas pelo módulo (acha-se por aqui, não pelo nome). */
+        role?: 'root' | 'orphans';
+      };
+    };
     JournalEntry: {
       'constelacao-da-apoteose': {
         masterDefinition?: ConstellationDefinition;
@@ -26,5 +32,6 @@ declare global {
     'constelacao-da-apoteose.sfxVolume': number;
     'constelacao-da-apoteose.musicVolume': number;
     'constelacao-da-apoteose.animatedSky': boolean;
+    'constelacao-da-apoteose.announceProgress': boolean;
   }
 }

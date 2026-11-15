@@ -24,6 +24,11 @@
       "lang": "pt-BR",
       "name": "Português (Brasil)",
       "path": "lang/pt-BR.json"
+    },
+    {
+      "lang": "en",
+      "name": "English (textos em português)",
+      "path": "lang/pt-BR.json"
     }
   ],
   "flags": {

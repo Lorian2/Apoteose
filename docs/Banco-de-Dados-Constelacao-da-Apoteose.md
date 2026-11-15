@@ -6,6 +6,8 @@
 **Depende de:** GDD v1.2 · TDD v1.0 · Arquitetura de Software v1.0 · Estrutura de Pastas v1.0 (todos aprovados)
 **Status:** Aprovado — reflete o schema real em produção (schemaVersion 3)
 
+> **Changelog v1.4 (15/11/2026, módulo 0.4.0):** `HistoryEntry` ganha `kind` e `nodeName` (opcionais, sem mudança de `schemaVersion`). No Estado do Jogador, uma entrada ligada a um Aspecto oculto ou removido perde `nodeId`; se for um registro automático sem título de capítulo, some por inteiro. Os diários da Definição Mestra passam a ficar na pasta "Constelação da Apoteose (Mestre)" (marcada por `flags.constelacao-da-apoteose.role` = `root` ou `orphans`).
+>
 > **Changelog v1.3 (14/11/2026, módulo 0.2.0):** schema v3. A exclusão mútua sai de `PathConnection.excludedByNodeIds` e vira `ConstellationDefinition.exclusions` (pares simétricos de Aspectos, seção 5). `PlayerVisibleNode` ganha `status`, calculado pelo Mestre (seção 5.2). A flag `unlockRequest` do Ator deixa de existir (o jogador não pede mais desbloqueio pelo módulo) e é apagada na migração. A migração 2→3 roda sozinha quando o Mestre ativo entra no mundo.
 
 > **Changelog v1.2 (25/07/2026):** o schema evoluiu de `schemaVersion: 1` para `2` durante a implementação, com uma migração real e automática entre as duas versões (seção 9, reescrita por completo — deixou de ser um placeholder). Mudanças de schema desta versão:
@@ -170,6 +172,8 @@ interface HistoryEntry {
   date: string;            // ex.: "12/08/2026"
   nodeId: string;          // pode ser "" quando a entrada não está ligada a um Aspecto específico
   chapterTitle?: string;   // ex.: "O Último Bastião"
+  kind?: 'unlock';         // v1.4: registro automático feito ao desbloquear um Aspecto
+  nodeName?: string;       // v1.4: nome do Aspecto no momento do registro (a entrada sobrevive se ele for removido); nunca vai ao jogador
 }
 
 interface ConstellationDefinition {

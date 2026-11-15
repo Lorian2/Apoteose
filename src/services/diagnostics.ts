@@ -27,6 +27,17 @@ export async function diagnose(service: ConstellationService): Promise<string> {
     }
   }
 
+  try {
+    const { orphans } = await service.organizeJournals();
+    lines.push(
+      orphans.length
+        ? `aviso diários sem Ator (guardados, nunca apagados): ${orphans.join('; ')}`
+        : 'ok    diários: todos pertencem a um Ator',
+    );
+  } catch (error) {
+    lines.push(`ERRO  diários: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;left:-10000px;top:0;width:400px;height:300px;';
   document.body.appendChild(host);

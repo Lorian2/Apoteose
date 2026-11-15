@@ -113,6 +113,10 @@ export interface HistoryEntry {
   date: string;
   nodeId: string;
   chapterTitle?: string;
+  /** unlock: registrada sozinha quando o Mestre desbloqueia um Aspecto. */
+  kind?: 'unlock';
+  /** Nome do Aspecto no momento do registro (a entrada sobrevive se ele for removido). Só na Definição Mestra. */
+  nodeName?: string;
 }
 
 /** Documento raiz da Definição Mestra (flag no JournalEntry oculto). */

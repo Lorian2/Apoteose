@@ -65,8 +65,8 @@
   <ul class="constelacao-timeline">
     {{#each history}}
     <li>
-      <div class="constelacao-timeline-meta">{{this.date}}{{#if this.nodeName}} — {{this.nodeName}}{{/if}}</div>
-      <div>{{this.chapterTitle}}</div>
+      <div class="constelacao-timeline-meta"><span>{{this.date}}{{#if this.aspect}} — {{this.aspect}}{{/if}}</span></div>
+      <div class="{{#if this.untitled}}constelacao-timeline-untitled{{/if}}">{{this.title}}</div>
     </li>
     {{/each}}
   </ul>

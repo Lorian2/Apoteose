@@ -14,6 +14,7 @@ const FLAG_MASTER_DEFINITION = 'masterDefinition';
 const FLAG_PLAYER_STATE = 'playerState';
 /** Resto do relé de desbloqueio pelo jogador (removido na 0.2.0). */
 const FLAG_LEGACY_UNLOCK_REQUEST = 'unlockRequest';
+const FOLDER_NAME = 'Constelação da Apoteose (Mestre)';
 
 /**
  * Uma função de migração transforma o documento de UMA versão pra próxima
@@ -105,6 +106,21 @@ export function migrateDefinition(raw: ConstellationDefinition): ConstellationDe
   return current;
 }
 
+/**
+ * Linha do Tempo que o jogador recebe. Uma entrada ligada a um Aspecto
+ * oculto (ou removido) nunca entrega o ID nem o nome dele; se for um
+ * registro automático de desbloqueio e o Mestre não escreveu um título,
+ * ela some por inteiro, porque só existiria para dizer que o Aspecto existe.
+ */
+function derivePlayerHistory(definition: ConstellationDefinition, revealedIds: Set<string>) {
+  return definition.history.flatMap((entry) => {
+    const { nodeName: _snapshot, ...rest } = entry;
+    if (!entry.nodeId || revealedIds.has(entry.nodeId)) return [rest];
+    if (entry.kind === 'unlock' && !entry.chapterTitle) return [];
+    return [{ ...rest, nodeId: '' }];
+  });
+}
+
 /** Banco de Dados, seções 3–4: o que o jogador pode receber. Exportada para os testes. */
 export function derivePlayerState(definition: ConstellationDefinition): PlayerConstellationState {
   const statuses = computeNodeStatuses(definition.nodes, definition.connections, definition.exclusions);
@@ -148,10 +164,7 @@ export function derivePlayerState(definition: ConstellationDefinition): PlayerCo
     rarities: definition.rarities,
     background: definition.background,
     backgroundMusic: definition.backgroundMusic,
-    // Entradas ligadas a Aspectos ainda ocultos não entregam o nome deles.
-    history: definition.history.map((entry) =>
-      entry.nodeId && !revealedIds.has(entry.nodeId) ? { ...entry, nodeId: '' } : entry,
-    ),
+    history: derivePlayerHistory(definition, revealedIds),
   };
 }
 
@@ -162,6 +175,8 @@ export function derivePlayerState(definition: ConstellationDefinition): PlayerCo
  * Estado do Jogador nunca vaza por um bug em outro lugar do código.
  */
 export class ConstellationRepository {
+  static readonly #folderRequests = new Map<string, Promise<Folder | undefined>>();
+
   /** Lê a Definição Mestra, criando-a (e ao JournalEntry oculto) se ainda não existir. */
   async getMasterDefinition(actorId: string): Promise<ConstellationDefinition> {
     const actor = this.#getActorOrThrow(actorId);
@@ -239,6 +254,53 @@ export class ConstellationRepository {
     return !!state && state.schemaVersion !== CURRENT_SCHEMA_VERSION;
   }
 
+  /**
+   * Move para a pasta do módulo os diários ocultos que estão soltos (sem
+   * pasta). Quem já foi movido à mão fica onde está. Diários cujo Ator foi
+   * apagado vão para a subpasta "Sem Ator": nunca são apagados, porque
+   * guardam a constelação inteira.
+   */
+  async organizeJournals(only?: JournalEntry[]): Promise<{ moved: number; orphans: string[] }> {
+    let moved = 0;
+    const orphans: string[] = [];
+    for (const journal of only ?? game.journal?.contents ?? []) {
+      const definition = journal.getFlag(MODULE_ID, FLAG_MASTER_DEFINITION);
+      if (!definition) continue;
+      const orphan = !game.actors?.get(definition.actorId);
+      if (orphan) orphans.push(journal.name ?? journal.id ?? '?');
+      if (journal.folder) continue;
+      const folder = await this.#ensureFolder(orphan ? 'orphans' : 'root');
+      if (!folder) continue;
+      await journal.update({ folder: folder.id });
+      moved += 1;
+    }
+    return { moved, orphans };
+  }
+
+  /** Acha (pelo marcador, não pelo nome) ou cria a pasta do módulo; criações simultâneas dividem a mesma. */
+  async #ensureFolder(role: 'root' | 'orphans'): Promise<Folder | undefined> {
+    const find = () =>
+      game.folders?.find((folder) => folder.type === 'JournalEntry' && folder.getFlag(MODULE_ID, 'role') === role);
+    const existing = find();
+    if (existing) return existing;
+
+    let pending = ConstellationRepository.#folderRequests.get(role);
+    if (!pending) {
+      pending = (async () => {
+        const parent = role === 'orphans' ? await this.#ensureFolder('root') : undefined;
+        return Folder.create({
+          name: role === 'root' ? FOLDER_NAME : 'Sem Ator',
+          type: 'JournalEntry',
+          color: '#3a1f4d',
+          folder: parent?.id ?? null,
+          flags: { [MODULE_ID]: { role } },
+        });
+      })().finally(() => ConstellationRepository.#folderRequests.delete(role));
+      ConstellationRepository.#folderRequests.set(role, pending);
+    }
+    return (await pending) ?? find();
+  }
+
   async #write(actor: Actor, journal: JournalEntry, definition: ConstellationDefinition): Promise<void> {
     await journal.setFlag(MODULE_ID, FLAG_MASTER_DEFINITION, definition);
     await actor.setFlag(MODULE_ID, FLAG_PLAYER_STATE, derivePlayerState(definition));
@@ -262,8 +324,16 @@ export class ConstellationRepository {
   }
 
   async #createMasterJournal(actor: Actor): Promise<JournalEntry> {
+    let folderId: string | undefined;
+    try {
+      folderId = (await this.#ensureFolder('root'))?.id ?? undefined;
+    } catch (error) {
+      // Sem pasta, o diário nasce solto: organizar é conforto, não requisito.
+      console.warn(`${MODULE_ID} | Não foi possível criar a pasta dos diários:`, error);
+    }
     const journal = await JournalEntry.create({
       name: `[Constelação da Apoteose — Mestre] ${actor.name}`,
+      folder: folderId,
       // Permissão None para jogadores: o servidor nunca transmite este
       // documento a quem não tem acesso — a base do "Mistério ativo".
       ownership: { default: CONST.DOCUMENT_OWNERSHIP_LEVELS.NONE },

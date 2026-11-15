@@ -4,6 +4,7 @@ import { ObservatoryApplication } from '../applications/observatory-application'
 import { ConstellationService } from '../services/constellation-service';
 import { ConstellationError } from '../errors';
 import { onUntypedHook } from '../utils/hooks';
+import { t } from '../utils/i18n';
 
 const service = new ConstellationService();
 
@@ -16,10 +17,15 @@ export function openConstellation(actorId: string): void {
   }
 }
 
-export async function openObservatory(actorId: string): Promise<void> {
+/** Abre o Observatório; com `nodeId`, já seleciona e centraliza aquele Aspecto. */
+export async function openObservatory(actorId: string, nodeId?: string): Promise<void> {
   try {
     await service.getPlayerState(actorId);
-    openWindow(`constelacao-apoteose-observatory-${actorId}`, () => new ObservatoryApplication(actorId));
+    const app = await openWindow(
+      `constelacao-apoteose-observatory-${actorId}`,
+      () => new ObservatoryApplication(actorId),
+    );
+    if (nodeId && app instanceof ObservatoryApplication) app.showNode(nodeId);
   } catch (error) {
     if (error instanceof ConstellationError && error.code === 'NOT_INITIALIZED') {
       ui.notifications?.warn('Sua constelação ainda não foi criada. Peça ao Mestre para abri-la uma vez.');
@@ -30,14 +36,21 @@ export async function openObservatory(actorId: string): Promise<void> {
   }
 }
 
-function openWindow(id: string, create: () => foundry.applications.api.ApplicationV2): void {
+async function openWindow(
+  id: string,
+  create: () => foundry.applications.api.ApplicationV2,
+): Promise<foundry.applications.api.ApplicationV2> {
   const existing = foundry.applications.instances.get(id);
   if (existing) {
-    void existing.render({ force: true });
+    // Não re-renderiza: refazer todas as partes substituiria o <canvas> da
+    // janela. Já aberta, basta trazê-la à frente (e restaurar se minimizada).
+    if (existing.minimized) await existing.maximize();
     existing.bringToFront();
-    return;
+    return existing;
   }
-  void create().render({ force: true });
+  const app = create();
+  await app.render({ force: true });
+  return app;
 }
 
 /**
@@ -57,7 +70,7 @@ export function registerHooks(): void {
   onUntypedHook('getActorContextOptions', (_application: unknown, entries: unknown[]) => {
     const actorFrom = (target: HTMLElement) => game.actors?.get(target.closest<HTMLElement>('[data-entry-id]')?.dataset.entryId ?? '');
     entries.push({
-      label: game.i18n?.localize('CONSTELACAO_APOTEOSE.OpenButtonLabel') ?? 'Constelação da Apoteose',
+      label: t('CONSTELACAO_APOTEOSE.OpenButtonLabel', 'Constelação da Apoteose'),
       icon: 'fa-solid fa-star',
       visible: (target: HTMLElement) => {
         const actor = actorFrom(target);
@@ -88,7 +101,12 @@ export function registerHooks(): void {
           );
         }
       })
-      .catch((error) => console.error(`${MODULE_ID} | Falha ao migrar constelações:`, error));
+      .catch((error) => console.error(`${MODULE_ID} | Falha ao migrar constelações:`, error))
+      .then(() => service.organizeJournals())
+      .then(({ moved }) => {
+        if (moved) console.log(`${MODULE_ID} | ${moved} diário(s) oculto(s) movido(s) para a pasta do módulo.`);
+      })
+      .catch((error) => console.warn(`${MODULE_ID} | Não foi possível organizar os diários:`, error));
   });
 }
 
@@ -107,8 +125,8 @@ function addConstellationHeaderButton(application: unknown): void {
   button.classList.add('header-control', 'icon', 'fa-solid', 'fa-star');
   button.dataset.constelacaoApoteoseButton = 'true';
   button.dataset.tooltip = game.user?.isGM
-    ? (game.i18n?.localize('CONSTELACAO_APOTEOSE.OpenButtonLabel') ?? 'Constelação da Apoteose')
-    : (game.i18n?.localize('CONSTELACAO_APOTEOSE.OpenObservatoryButtonLabel') ?? 'Minha Constelação');
+    ? t('CONSTELACAO_APOTEOSE.OpenButtonLabel', 'Constelação da Apoteose')
+    : t('CONSTELACAO_APOTEOSE.OpenObservatoryButtonLabel', 'Minha Constelação');
   button.setAttribute('aria-label', button.dataset.tooltip);
   button.addEventListener('click', (event) => {
     event.preventDefault();

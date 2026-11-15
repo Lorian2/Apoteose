@@ -10,6 +10,7 @@ import type {
   Position,
   RarityTier,
 } from '../types/constellation';
+import { currentDateLabel } from '../utils/game-date';
 import { callModuleHook } from '../utils/hooks';
 import { computeNodeStatuses } from '../utils/node-status';
 import { HistoryService } from './history-service';
@@ -65,6 +66,12 @@ export class ConstellationService {
   async getMasterDefinition(actorId: string): Promise<ConstellationDefinition> {
     this.#permissions.assertGM();
     return enqueue(actorId, () => this.#repository.getMasterDefinition(actorId));
+  }
+
+  /** Arruma os diários ocultos numa pasta (ver `ConstellationRepository.organizeJournals`). */
+  async organizeJournals(only?: JournalEntry[]): Promise<{ moved: number; orphans: string[] }> {
+    this.#permissions.assertGM();
+    return this.#repository.organizeJournals(only);
   }
 
   getMasterJournalId(actorId: string): string | undefined {
@@ -275,6 +282,13 @@ export class ConstellationService {
 
       definition.unspentPoints -= 1;
       node.unlocked = true;
+      // Registro automático na Linha do Tempo; o Mestre pode dar um título depois.
+      definition.history = this.#history.appendEntry(definition.history, {
+        date: currentDateLabel(),
+        nodeId,
+        nodeName: node.name,
+        kind: 'unlock',
+      });
     });
     callModuleHook('constelacaoApoteose.nodeUnlocked', actorId, nodeId);
   }
@@ -289,6 +303,7 @@ export class ConstellationService {
       }
       node.unlocked = false;
       definition.unspentPoints += 1;
+      definition.history = this.#history.removeLatestUnlock(definition.history, nodeId);
     });
   }
 
@@ -319,6 +334,16 @@ export class ConstellationService {
   async addHistoryEntry(actorId: string, entry: HistoryEntry): Promise<void> {
     await this.#mutate(actorId, (definition) => {
       definition.history = this.#history.appendEntry(definition.history, entry);
+    });
+  }
+
+  async updateHistoryEntry(
+    actorId: string,
+    index: number,
+    changes: Partial<Pick<HistoryEntry, 'chapterTitle' | 'date'>>,
+  ): Promise<void> {
+    await this.#mutate(actorId, (definition) => {
+      definition.history = this.#history.updateEntry(definition.history, index, changes);
     });
   }
 
